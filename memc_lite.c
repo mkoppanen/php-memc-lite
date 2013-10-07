@@ -172,8 +172,9 @@ PHP_METHOD(memcachedlite, set)
 	size_t store_value_len;
 	uint32_t flags;
 	zend_bool allocated;
+	long cas = 0;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sz|l", &key, &key_len, &value, &ttl) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sz|ll", &key, &key_len, &value, &ttl, &cas) == FAILURE) {
 		return;
 	}
 
@@ -181,13 +182,21 @@ PHP_METHOD(memcachedlite, set)
 	store_value = s_marshall_value (value, &store_value_len, &flags, &allocated, buffer TSRMLS_CC);
 
 	if (store_value) {
-		rc = memcached_set (intern->memc, key, key_len, store_value, store_value_len, (time_t) ttl, flags);
+		if (cas) {
+			memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 1);
+
+			rc = memcached_cas (intern->memc, key, key_len, store_value, store_value_len, (time_t) ttl, flags, cas);
+
+			memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 0);
+		} else {
+			rc = memcached_set (intern->memc, key, key_len, store_value, store_value_len, (time_t) ttl, flags);
+		}
 
 		if (allocated) {
 			efree (store_value);
 		}
 	} else {
-		zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to marshall the value for saving", -1 TSRMLS_CC);
+		zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to marshall the value", -1 TSRMLS_CC);
 		return;
 	}
 
@@ -274,28 +283,66 @@ PHP_METHOD(memcachedlite, get)
 	uint32_t flags;
 	memcached_return rc = MEMCACHED_SUCCESS;
 	zval *exists = NULL;
+	zval *cas = NULL;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &key, &key_len, &exists) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|zz", &key, &key_len, &exists, &cas) == FAILURE) {
 		return;
 	}
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
-	value  = memcached_get (intern->memc, key, key_len, &value_len, &flags, &rc);
 
-	if (rc == MEMCACHED_SUCCESS) {
-		s_unmarshall_value (return_value, value, value_len, flags TSRMLS_CC);
-		if (exists) {
-			ZVAL_BOOL (exists, 1);
+	if (cas) {
+		memcached_result_st result;
+		const char const *keys [1] = { key };
+		size_t keys_len [1] = { key_len };
+
+		memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 1);
+
+		rc = memcached_mget (intern->memc, keys, keys_len, 1);
+
+		memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 0);
+
+		if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::get", rc TSRMLS_CC)) {
+			return;
 		}
-		free (value);
-		return;
+
+		rc = MEMCACHED_SUCCESS;
+		memcached_result_create (intern->memc, &result);
+
+		if (memcached_fetch_result (intern->memc, &result, &rc) != NULL) {
+			ZVAL_LONG (cas, memcached_result_cas (&result));
+			s_unmarshall_value (return_value, memcached_result_value (&result),
+											  memcached_result_length (&result),
+											  memcached_result_flags (&result) TSRMLS_CC);
+
+			if (exists) {
+				ZVAL_BOOL (exists, 1);
+			}
+			memcached_result_free(&result);
+			return;
+		}
+	} else {
+		value = memcached_get (intern->memc, key, key_len, &value_len, &flags, &rc);
+
+		if (rc == MEMCACHED_SUCCESS) {
+			s_unmarshall_value (return_value, value, value_len, flags TSRMLS_CC);
+			if (exists) {
+				ZVAL_BOOL (exists, 1);
+			}
+			free (value);
+			return;
+		}
 	}
 
-	/* Not found is expected during get operation, hence no exception here */
+	if (exists) {
+		ZVAL_BOOL (exists, 0);
+	}
+
+	if (cas) {
+		ZVAL_LONG (cas, 0);
+	}
+
 	if (rc == MEMCACHED_NOTFOUND) {
-		if (exists) {
-			ZVAL_BOOL (exists, 0);
-		}
 		RETURN_NULL();
 	}
 
@@ -316,6 +363,12 @@ ZEND_BEGIN_ARG_INFO_EX(memc_lite_set_args, 0, 0, 2)
 	ZEND_ARG_INFO(0, ttl)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(memc_lite_add_args, 0, 0, 2)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, value)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(memc_lite_get_args, 0, 0, 1)
 	ZEND_ARG_INFO(0, key)
 	ZEND_ARG_INFO(1, exists)
@@ -326,6 +379,7 @@ zend_function_entry php_memc_lite_class_methods[] =
 {
 	PHP_ME(memcachedlite, add_server, memc_lite_add_server_args, ZEND_ACC_PUBLIC)
 	PHP_ME(memcachedlite, set,        memc_lite_set_args,        ZEND_ACC_PUBLIC)
+	//PHP_ME(memcachedlite, add,        memc_lite_add_args,        ZEND_ACC_PUBLIC)
 	PHP_ME(memcachedlite, get,        memc_lite_get_args,        ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };

@@ -20,7 +20,7 @@ try {
 			);
 	
 	foreach ($test as $k => $value) {
-		$memc->set ($k, $value);
+		$memc->set ($k, $value, 10);
 		$back = $memc->get ($k);
 
 		if ((is_object ($value) && $back == $value) || $back === $value)
