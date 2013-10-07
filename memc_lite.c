@@ -42,17 +42,6 @@ typedef enum _php_memc_lite_distribution {
 	PHP_MEMC_LITE_DISTRIBUTION_VBUCKET = 3,
 } php_memc_lite_distribution;
 
-#if PHP_VERSION_ID < 50399
-# define object_properties_init(zo, class_type) { \
-			zval *tmp; \
-			zend_hash_copy((*zo).properties, \
-							&class_type->default_properties, \
-							(copy_ctor_func_t) zval_add_ref, \
-							(void *) &tmp, \
-							sizeof(zval *)); \
-		 }
-#endif
-
 static
 zend_bool s_handle_libmemcached_return (memcached_st *memc, const char *name, memcached_return rc TSRMLS_DC)
 {
@@ -259,7 +248,7 @@ void s_unmarshall_value (zval *return_value, const char *value, size_t value_len
 		php_unserialize_data_t var_hash;
 
 		PHP_VAR_UNSERIALIZE_INIT(var_hash);
-		if (!php_var_unserialize(&return_value, (const unsigned char **) &value, (const unsigned char *) value + value_len, &var_hash TSRMLS_CC)) {
+		if (!php_var_unserialize (&return_value, (const unsigned char **) &value, (const unsigned char *) value + value_len, &var_hash TSRMLS_CC)) {
 			PHP_VAR_UNSERIALIZE_DESTROY(var_hash);
 			zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall serialized value", -1 TSRMLS_CC);
 			return;
@@ -291,12 +280,7 @@ PHP_METHOD(memcachedlite, get)
 	}
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
-
-	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::get", rc TSRMLS_CC)) {
-		return;
-	}
-
-	value = memcached_get (intern->memc, key, key_len, &value_len, &flags, &rc);
+	value  = memcached_get (intern->memc, key, key_len, &value_len, &flags, &rc);
 
 	if (rc == MEMCACHED_SUCCESS) {
 		s_unmarshall_value (return_value, value, value_len, flags TSRMLS_CC);
@@ -361,6 +345,17 @@ void php_memc_lite_object_free_storage(void *object TSRMLS_DC)
 	zend_object_std_dtor(&intern->zo TSRMLS_CC);
 	efree(intern);
 }
+
+#if PHP_VERSION_ID < 50399 && !defined(object_properties_init)
+# define object_properties_init(zo, class_type) { \
+			zval *tmp; \
+			zend_hash_copy((*zo).properties, \
+							&class_type->default_properties, \
+							(copy_ctor_func_t) zval_add_ref, \
+							(void *) &tmp, \
+							sizeof(zval *)); \
+		 }
+#endif
 
 static
 zend_object_value php_memc_lite_object_new(zend_class_entry *class_type TSRMLS_DC)
