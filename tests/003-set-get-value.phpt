@@ -5,7 +5,7 @@ Set key and get different types
 --FILE--
 <?php
 $memc = new MemcachedLite ();
-$memc->add_server ('localhost', 11211);
+$memc->add_server ('localhost');
 
 try {
 	$test = array (

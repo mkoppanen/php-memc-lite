@@ -266,6 +266,10 @@ void s_unmarshall_value (zval *return_value, const char *value, size_t value_len
 		}
 		PHP_VAR_UNSERIALIZE_DESTROY(var_hash);
 	}
+	else {
+		zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall unknown value", -1 TSRMLS_CC);
+		return;
+	}
 }
 
 /* {{{ proto MemcachedLite MemcachedLite::get(string $key[, bool $exists = null])
@@ -294,7 +298,6 @@ PHP_METHOD(memcachedlite, get)
 
 	value = memcached_get (intern->memc, key, key_len, &value_len, &flags, &rc);
 
-	/* Expected errors */
 	if (rc == MEMCACHED_SUCCESS) {
 		s_unmarshall_value (return_value, value, value_len, flags TSRMLS_CC);
 		if (exists) {
@@ -304,6 +307,7 @@ PHP_METHOD(memcachedlite, get)
 		return;
 	}
 
+	/* Not found is expected during get operation, hence no exception here */
 	if (rc == MEMCACHED_NOTFOUND) {
 		if (exists) {
 			ZVAL_BOOL (exists, 0);
@@ -330,6 +334,7 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(memc_lite_get_args, 0, 0, 1)
 	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(1, exists)
 ZEND_END_ARG_INFO()
 
 static
