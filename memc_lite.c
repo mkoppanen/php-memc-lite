@@ -24,6 +24,21 @@
 
 #include <libmemcached/memcached.h>
 
+#if defined(__linux__)
+#  include <endian.h>
+#elif defined(__FreeBSD__) || defined(__NetBSD__)
+#  include <sys/endian.h>
+#elif defined(__OpenBSD__)
+#  include <sys/types.h>
+#  define be16toh(x) betoh16(x)
+#  define be32toh(x) betoh32(x)
+#  define be64toh(x) betoh64(x)
+#elif defined(__APPLE__)
+#  include <libkern/OSByteOrder.h>
+#  define htobe64(x) OSSwapHostToBigInt64(x)
+#  define be64toh(x) OSSwapBigToHostInt64(x)
+#endif
+
 typedef struct _php_memc_lite_object  {
 	zend_object zo;
 	memcached_st *memc;
@@ -156,6 +171,30 @@ char *s_marshall_value (zval *orig_value, size_t *length, uint32_t *flags, zend_
 	return NULL;
 }
 
+static
+void s_marshall_cas (zval *target, uint64_t value TSRMLS_DC)
+{
+	char *buffer;
+	uint64_t big_endian = htobe64 (value);
+
+	buffer = emalloc (sizeof (uint64_t));
+	memcpy (buffer, &big_endian, sizeof (uint64_t));
+	ZVAL_STRINGL (target, buffer, sizeof (uint64_t), 0);
+}
+
+static
+uint64_t s_unmarshall_cas (zval *source TSRMLS_DC)
+{
+	uint64_t big_endian;
+
+	if (Z_TYPE_P (source) != IS_STRING || Z_STRLEN_P (source) != sizeof (uint64_t)) {
+		return 0;
+	}
+
+	memcpy (&big_endian, Z_STRVAL_P (source), sizeof (uint64_t));
+	return be64toh (big_endian);
+}
+
 /* {{{ proto MemcachedLite MemcachedLite::set(string $key, mixed $value[, int $ttl = 0])
     Set a key to a value
 */
@@ -172,9 +211,9 @@ PHP_METHOD(memcachedlite, set)
 	size_t store_value_len;
 	uint32_t flags;
 	zend_bool allocated;
-	long cas = 0;
+	zval *cas = NULL;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sz|ll", &key, &key_len, &value, &ttl, &cas) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sz|lz", &key, &key_len, &value, &ttl, &cas) == FAILURE) {
 		return;
 	}
 
@@ -182,10 +221,10 @@ PHP_METHOD(memcachedlite, set)
 	store_value = s_marshall_value (value, &store_value_len, &flags, &allocated, buffer TSRMLS_CC);
 
 	if (store_value) {
-		if (cas) {
+		if (cas && Z_TYPE_P (cas) != IS_NULL) {
 			memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 1);
 
-			rc = memcached_cas (intern->memc, key, key_len, store_value, store_value_len, (time_t) ttl, flags, cas);
+			rc = memcached_cas (intern->memc, key, key_len, store_value, store_value_len, (time_t) ttl, flags, s_unmarshall_cas (cas));
 
 			memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 0);
 		} else {
@@ -284,6 +323,7 @@ PHP_METHOD(memcachedlite, get)
 	memcached_return rc = MEMCACHED_SUCCESS;
 	zval *exists = NULL;
 	zval *cas = NULL;
+	memcached_result_st result;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|zz", &key, &key_len, &exists, &cas) == FAILURE) {
 		return;
@@ -291,16 +331,17 @@ PHP_METHOD(memcachedlite, get)
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
 
-	if (cas) {
-		memcached_result_st result;
+	{
 		const char const *keys [1] = { key };
 		size_t keys_len [1] = { key_len };
 
-		memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 1);
+		if (cas)
+			memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 1);
 
 		rc = memcached_mget (intern->memc, keys, keys_len, 1);
 
-		memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 0);
+		if (cas)
+			memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 0);
 
 		if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::get", rc TSRMLS_CC)) {
 			return;
@@ -310,7 +351,9 @@ PHP_METHOD(memcachedlite, get)
 		memcached_result_create (intern->memc, &result);
 
 		if (memcached_fetch_result (intern->memc, &result, &rc) != NULL) {
-			ZVAL_LONG (cas, memcached_result_cas (&result));
+			if (cas)
+				s_marshall_cas (cas, memcached_result_cas (&result));
+
 			s_unmarshall_value (return_value, memcached_result_value (&result),
 											  memcached_result_length (&result),
 											  memcached_result_flags (&result) TSRMLS_CC);
@@ -321,17 +364,6 @@ PHP_METHOD(memcachedlite, get)
 			memcached_result_free(&result);
 			return;
 		}
-	} else {
-		value = memcached_get (intern->memc, key, key_len, &value_len, &flags, &rc);
-
-		if (rc == MEMCACHED_SUCCESS) {
-			s_unmarshall_value (return_value, value, value_len, flags TSRMLS_CC);
-			if (exists) {
-				ZVAL_BOOL (exists, 1);
-			}
-			free (value);
-			return;
-		}
 	}
 
 	if (exists) {
@@ -339,7 +371,7 @@ PHP_METHOD(memcachedlite, get)
 	}
 
 	if (cas) {
-		ZVAL_LONG (cas, 0);
+		ZVAL_NULL (cas);
 	}
 
 	if (rc == MEMCACHED_NOTFOUND) {
