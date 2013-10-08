@@ -33,9 +33,7 @@ class MemcachedLite {
     public function set_binary_protocol ($toggle);
     public function get_binary_protocol ();
 
-    /*
-        TODO: later
     public function set_compression ($toggle);
     public function get_compression ();
-    */
+
 }
