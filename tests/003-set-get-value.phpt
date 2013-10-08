@@ -4,10 +4,11 @@ Set key and get different types
 <?php require_once(dirname(__FILE__) . '/skipif.inc'); ?>
 --FILE--
 <?php
-$memc = new MemcachedLite ();
-$memc->add_server ('localhost');
 
-try {
+require __DIR__ . '/test_driver.inc';
+
+function run_setget_test ($memc) {
+	
 	$test = array (
 				'str value',
 				42,
@@ -28,13 +29,20 @@ try {
 
 		echo "Failure in " . gettype ($value) . PHP_EOL;
 		var_dump ($value, $back);
+		return;
 	}
-} catch (Exception $e) {
-	echo "fail: " . $e->getMessage () . PHP_EOL;
+	echo "ALL OK" . PHP_EOL;
 }
+
+run_memc_lite_test (true, 'run_setget_test');
+run_memc_lite_test (false, 'run_setget_test');
 
 echo "OK" . PHP_EOL;
 
 ?>
 --EXPECT--
+BINARY PROTO
+ALL OK
+ASCII PROTO
+ALL OK
 OK

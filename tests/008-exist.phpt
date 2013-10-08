@@ -1,5 +1,5 @@
 --TEST--
-Difference between null and not exists
+Test exists method
 --SKIPIF--
 <?php require_once(dirname(__FILE__) . '/skipif.inc'); ?>
 --FILE--
@@ -9,13 +9,11 @@ $exists = null;
 $memc = new MemcachedLite ();
 $memc->add_server ('127.0.0.1', 11211);
 
-$memc->set ('this_is_null', null);
-$memc->get ('this_is_null', $exists);
-var_dump ($exists);
+$memc->set ('expires', 'hi', 1);
+var_dump ($memc->exist ('expires'));
+sleep (2);
 
-$memc->get ('this_should_fail_' . uniqid (), $exists);
-var_dump ($exists);
-
+var_dump ($memc->exist ('expires'));
 echo "OK" . PHP_EOL;
 
 ?>

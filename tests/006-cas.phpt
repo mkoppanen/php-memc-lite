@@ -4,39 +4,59 @@ CAS tokens
 <?php require_once(dirname(__FILE__) . '/skipif.inc'); ?>
 --FILE--
 <?php
-$exists = null;
-$cas = -1;
 
-$memc = new MemcachedLite ();
-$memc->add_server ('127.0.0.1', 11211);
+require __DIR__ . '/test_driver.inc';
 
-$memc->set ('hello_world', 'hi', 10);
+function run_cas_test ($memc)
+{
+	$key = 'hello_world';
+	
+	$exists = null;
+	$cas = -1;	
 
-// The key should exist and $cas should be greater than zero
-$memc->get ('hello_world', $exists, $cas);
-var_dump ($exists, $cas);
+	// Set initial value to 'hi' with expiration of ten
+	$memc->set ($key, 'hi', 10);
 
-// This should not throw exception, correct cas token
-$memc->set ('hello_world', 'hi', 10, $cas);
+	// We should be able to get cas token back
+	$value = $memc->get ($key, $exists, $cas);
+	printf ("key=[%s] value=[%s] exists=[%d] cas=[%d]" . PHP_EOL, $key, $value, $exists, is_string ($cas));
+	$old_cas = $cas;
+	
+	// This should not throw exception, correct cas token
+	$memc->set ($key, 'hi again', 10, $cas);
 
-// This should not exist and zero cas returned
-$memc->get ('asdaddasdasdasdsadsasdsd_' . uniqid (), $exists, $cas);
-var_dump ($exists, $cas);
+	// Let's see that the value is correct
+	$value = $memc->get ($key, $exists, $cas);
+	printf ("key=[%s] value=[%s] exists=[%d] cas=[%d]" . PHP_EOL, $key, $value, $exists, is_string ($cas));
+	
+	try {
+		// Setting this key should fail because of wrong cas
+		$memc->set ($key, 'hohoho', 10, $old_cas);
+	} catch (Exception $e) {
+		echo "CAS failed as expected" . PHP_EOL;
+	}
 
-try {
-	// Setting this key should fail because of wrong cas
-	$memc->set ('hello_world', 'hi', 10, 1);
-} catch (Exception $e) {
-	echo "CAS failed as expected" . PHP_EOL;
+	// Test cas value with non-existent key
+	$key = 'this_key_should_not_exist_111';
+	$memc->get ($key, $exists, $cas);
+	printf ("key=[%s] value=[%s] exists=[%d] cas=[%d]" . PHP_EOL, $key, $value, $exists, is_string ($cas));
 }
+
+
+run_memc_lite_test (true, 'run_cas_test');
+run_memc_lite_test (false, 'run_cas_test');
+
 
 echo "OK" . PHP_EOL;
 
 ?>
---EXPECTF--
-bool(true)
-string(8) %s
-bool(false)
-NULL
-CAS failed as expected
+--EXPECT--
+BINARY PROTO
+key=[hello_world] value=[hi] exists=[1] cas=[1]
+key=[hello_world] value=[hi again] exists=[1] cas=[1]
+key=[this_key_should_not_exist_111] value=[hi again] exists=[0] cas=[0]
+ASCII PROTO
+key=[hello_world] value=[hi] exists=[1] cas=[1]
+key=[hello_world] value=[hi again] exists=[1] cas=[1]
+key=[this_key_should_not_exist_111] value=[hi again] exists=[0] cas=[0]
 OK

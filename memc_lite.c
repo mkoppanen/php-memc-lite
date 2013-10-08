@@ -51,11 +51,26 @@ static
 static
 	zend_object_handlers memc_lite_object_handlers;
 
-typedef enum _php_memc_lite_distribution {
+typedef enum _php_memc_lite_distribution_t {
 	PHP_MEMC_LITE_DISTRIBUTION_MODULO  = 1,
 	PHP_MEMC_LITE_DISTRIBUTION_KETAMA  = 2,
 	PHP_MEMC_LITE_DISTRIBUTION_VBUCKET = 3,
-} php_memc_lite_distribution;
+} php_memc_lite_distribution_t;
+
+typedef enum _php_memc_lite_op_t {
+	PHP_MEMC_LITE_OP_INCR  = 1,
+	PHP_MEMC_LITE_OP_DECR  = 2,
+} php_memc_lite_op_t;
+
+#define MEMC_LITE_FLAG_IS_STRING     (1 << 1)
+#define MEMC_LITE_FLAG_IS_LONG       (1 << 2)
+#define MEMC_LITE_FLAG_IS_DOUBLE     (1 << 3)
+#define MEMC_LITE_FLAG_IS_BOOL       (1 << 4)
+#define MEMC_LITE_FLAG_IS_NULL       (1 << 5)
+#define MEMC_LITE_FLAG_IS_SERIALIZED (1 << 6)
+#define MEMC_LITE_FLAG_IS_COMPRESSED (1 << 7)
+
+#define MEMC_LITE_VERY_SMALL 48
 
 static
 zend_bool s_handle_libmemcached_return (memcached_st *memc, const char *name, memcached_return rc TSRMLS_DC)
@@ -68,7 +83,7 @@ zend_bool s_handle_libmemcached_return (memcached_st *memc, const char *name, me
 	return 1;
 }
 
-/* {{{ proto MemcachedLite MemcachedLite::add_server(string $host[, int $port = 11211])
+/* {{{ proto bool MemcachedLite::add_server(string $host[, int $port = 11211])
     Add a new server connection
 */
 PHP_METHOD(memcachedlite, add_server)
@@ -89,20 +104,9 @@ PHP_METHOD(memcachedlite, add_server)
 	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::add_server", rc TSRMLS_CC)) {
 		return;
 	}
-
-	RETURN_ZVAL (getThis (), 1, 0);
+	RETURN_TRUE;
 }
 /* }}} */
-
-#define MEMC_LITE_FLAG_IS_STRING     (1 << 1)
-#define MEMC_LITE_FLAG_IS_LONG       (1 << 2)
-#define MEMC_LITE_FLAG_IS_DOUBLE     (1 << 3)
-#define MEMC_LITE_FLAG_IS_BOOL       (1 << 4)
-#define MEMC_LITE_FLAG_IS_NULL       (1 << 5)
-#define MEMC_LITE_FLAG_IS_SERIALIZED (1 << 6)
-#define MEMC_LITE_FLAG_IS_COMPRESSED (1 << 7)
-
-#define MEMC_LITE_VERY_SMALL 48
 
 static
 char *s_marshall_value (zval *orig_value, size_t *length, uint32_t *flags, zend_bool *allocated, char *small_buffer TSRMLS_DC)
@@ -146,7 +150,6 @@ char *s_marshall_value (zval *orig_value, size_t *length, uint32_t *flags, zend_
 		case IS_OBJECT:
 		case IS_ARRAY:
 		{
-			char *retval;
 			smart_str buffer = {0};
 			php_serialize_data_t var_hash;
 
@@ -160,11 +163,20 @@ char *s_marshall_value (zval *orig_value, size_t *length, uint32_t *flags, zend_
 				return NULL;
 
 			*length = buffer.len;
-			retval  = estrdup (buffer.c); // TODO: kinda useless copy here
-			smart_str_free (&buffer);
 
-			*allocated = 1;
-			return retval;
+			// If this is a small value, just return using existing buffer
+			if (buffer.len < MEMC_LITE_VERY_SMALL) {
+				memcpy (small_buffer, buffer.c, buffer.len);
+				smart_str_free (&buffer);
+				return small_buffer;
+			} else {
+				char *retval;
+				retval  = estrdup (buffer.c);
+				smart_str_free (&buffer);
+
+				*allocated = 1;
+				return retval;
+			}
 		}
 		break;
 	}
@@ -172,7 +184,7 @@ char *s_marshall_value (zval *orig_value, size_t *length, uint32_t *flags, zend_
 }
 
 static
-void s_marshall_cas (zval *target, uint64_t value TSRMLS_DC)
+void s_uint64_to_zval (zval *target, uint64_t value TSRMLS_DC)
 {
 	char *buffer;
 	uint64_t big_endian = htobe64 (value);
@@ -183,19 +195,18 @@ void s_marshall_cas (zval *target, uint64_t value TSRMLS_DC)
 }
 
 static
-uint64_t s_unmarshall_cas (zval *source TSRMLS_DC)
+uint64_t s_zval_to_uint64 (zval *source TSRMLS_DC)
 {
 	uint64_t big_endian;
 
 	if (Z_TYPE_P (source) != IS_STRING || Z_STRLEN_P (source) != sizeof (uint64_t)) {
 		return 0;
 	}
-
 	memcpy (&big_endian, Z_STRVAL_P (source), sizeof (uint64_t));
 	return be64toh (big_endian);
 }
 
-/* {{{ proto MemcachedLite MemcachedLite::set(string $key, mixed $value[, int $ttl = 0])
+/* {{{ proto bool MemcachedLite::set(string $key, mixed $value[, int $ttl = 0[, string $cas = null]])
     Set a key to a value
 */
 PHP_METHOD(memcachedlite, set)
@@ -224,7 +235,7 @@ PHP_METHOD(memcachedlite, set)
 		if (cas && Z_TYPE_P (cas) != IS_NULL) {
 			memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 1);
 
-			rc = memcached_cas (intern->memc, key, key_len, store_value, store_value_len, (time_t) ttl, flags, s_unmarshall_cas (cas));
+			rc = memcached_cas (intern->memc, key, key_len, store_value, store_value_len, (time_t) ttl, flags, s_zval_to_uint64 (cas));
 
 			memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 0);
 		} else {
@@ -239,10 +250,66 @@ PHP_METHOD(memcachedlite, set)
 		return;
 	}
 
+	/* For some reason some values give MEMCACHED_END when binary protocol is used */
+	if (memcached_behavior_get (intern->memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL) && rc == MEMCACHED_END) {
+		RETURN_TRUE;
+	}
+
 	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::set", rc TSRMLS_CC)) {
 		return;
 	}
-	RETURN_ZVAL (getThis (), 1, 0);
+	RETURN_TRUE;
+}
+/* }}} */
+
+/* {{{ proto bool MemcachedLite::add(string $key, mixed $value[, int $ttl = 0])
+    Add a key if it doesn't exist
+*/
+PHP_METHOD(memcachedlite, add)
+{
+	char buffer [MEMC_LITE_VERY_SMALL];
+	php_memc_lite_object *intern;
+	char *key;
+	int key_len;
+	zval *value;
+	long ttl = 0;
+	memcached_return rc = MEMCACHED_FAILURE;
+	char *store_value;
+	size_t store_value_len;
+	uint32_t flags;
+	zend_bool allocated;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sz|l", &key, &key_len, &value, &ttl) == FAILURE) {
+		return;
+	}
+
+	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
+	store_value = s_marshall_value (value, &store_value_len, &flags, &allocated, buffer TSRMLS_CC);
+
+	if (store_value) {
+		rc = memcached_add (intern->memc, key, key_len, store_value, store_value_len, (time_t) ttl, flags);
+
+		if (allocated) {
+			efree (store_value);
+		}
+	} else {
+		zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to marshall the value", -1 TSRMLS_CC);
+		return;
+	}
+
+	if (rc == MEMCACHED_SUCCESS) {
+		RETURN_TRUE;
+	}
+	/* No exception on this, just means that key exists */
+	else
+	if (rc == MEMCACHED_NOTSTORED || rc == MEMCACHED_DATA_EXISTS) {
+		RETURN_FALSE;
+	}
+
+	/* Seems like we have error */
+	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::add", rc TSRMLS_CC)) {
+		return;
+	}
 }
 /* }}} */
 
@@ -250,7 +317,7 @@ static
 void s_unmarshall_value (zval *return_value, const char *value, size_t value_len, uint32_t flags TSRMLS_DC)
 {
 	if (flags & MEMC_LITE_FLAG_IS_STRING) {
-		ZVAL_STRING (return_value, value, value_len);
+		ZVAL_STRINGL (return_value, value, value_len, 1);
 	}
 	else
 	if (flags & MEMC_LITE_FLAG_IS_LONG) {
@@ -309,7 +376,7 @@ void s_unmarshall_value (zval *return_value, const char *value, size_t value_len
 	}
 }
 
-/* {{{ proto MemcachedLite MemcachedLite::get(string $key[, bool $exists = null])
+/* {{{ proto mixed MemcachedLite::get(string $key[, bool $exists = null])
     Set a key to a value
 */
 PHP_METHOD(memcachedlite, get)
@@ -352,7 +419,7 @@ PHP_METHOD(memcachedlite, get)
 
 		if (memcached_fetch_result (intern->memc, &result, &rc) != NULL) {
 			if (cas)
-				s_marshall_cas (cas, memcached_result_cas (&result));
+				s_uint64_to_zval (cas, memcached_result_cas (&result));
 
 			s_unmarshall_value (return_value, memcached_result_value (&result),
 											  memcached_result_length (&result),
@@ -361,7 +428,7 @@ PHP_METHOD(memcachedlite, get)
 			if (exists) {
 				ZVAL_BOOL (exists, 1);
 			}
-			memcached_result_free(&result);
+			memcached_result_free (&result);
 			return;
 		}
 	}
@@ -383,6 +450,196 @@ PHP_METHOD(memcachedlite, get)
 	}
 }
 /* }}} */
+
+/* {{{ proto bool MemcachedLite::exist(string $key)
+    Checks if the key exists
+*/
+PHP_METHOD(memcachedlite, exist)
+{
+	php_memc_lite_object *intern;
+	char *key;
+	int key_len;
+	memcached_return rc;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &key, &key_len) == FAILURE) {
+		return;
+	}
+
+	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
+	rc = memcached_exist (intern->memc, key, key_len);
+
+	if (rc == MEMCACHED_SUCCESS) {
+		RETURN_TRUE;
+	}
+	/* No exception on this, just means that key doesnt exist */
+	else
+	if (rc == MEMCACHED_NOTFOUND) {
+		RETURN_FALSE;
+	}
+	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::exist", rc TSRMLS_CC)) {
+		return;
+	}
+}
+/* }}} */
+
+/* {{{ proto bool MemcachedLite::touch(string $key[, int $ttl = 0])
+    Update expiration time of a key without fetching the value
+*/
+PHP_METHOD(memcachedlite, touch)
+{
+	php_memc_lite_object *intern;
+	char *key;
+	int key_len;
+	memcached_return rc;
+	long ttl = 0;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|l", &key, &key_len, &ttl) == FAILURE) {
+		return;
+	}
+
+	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
+	rc = memcached_touch (intern->memc, key, key_len, (time_t) ttl);
+
+	if (rc == MEMCACHED_SUCCESS) {
+		RETURN_TRUE;
+	}
+	/* No exception on this, just means that key doesnt exist */
+	else
+	if (rc == MEMCACHED_NOTFOUND) {
+		RETURN_FALSE;
+	}
+	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::touch", rc TSRMLS_CC)) {
+		return;
+	}
+}
+/* }}} */
+
+/* {{{ proto bool MemcachedLite::delete(string $key)
+    Delete a key
+*/
+PHP_METHOD(memcachedlite, delete)
+{
+	php_memc_lite_object *intern;
+	char *key;
+	int key_len;
+	memcached_return rc;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &key, &key_len) == FAILURE) {
+		return;
+	}
+
+	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
+	rc = memcached_delete (intern->memc, key, key_len, 0);
+
+	if (rc == MEMCACHED_SUCCESS) {
+		RETURN_TRUE;
+	}
+	/* No exception on this, just means that key doesnt exist */
+	else
+	if (rc == MEMCACHED_NOTFOUND) {
+		RETURN_FALSE;
+	}
+	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::delete", rc TSRMLS_CC)) {
+		return;
+	}
+}
+/* }}} */
+
+static
+void s_memc_lite_interval_op (INTERNAL_FUNCTION_PARAMETERS, php_memc_lite_op_t operation)
+{
+	php_memc_lite_object *intern;
+	char *key;
+	int key_len;
+	memcached_return rc;
+	long offset = 1, ttl = 0;
+	uint64_t initial = 0, new_value = 0;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|ll", &key, &key_len, &offset, &ttl) == FAILURE) {
+		return;
+	}
+
+	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
+
+	if (operation == PHP_MEMC_LITE_OP_INCR)
+		rc = memcached_increment_with_initial (intern->memc, key, key_len, offset, initial, (time_t) ttl, &new_value);
+	else
+		rc = memcached_decrement_with_initial (intern->memc, key, key_len, offset, initial, (time_t) ttl, &new_value);
+
+	if (rc == MEMCACHED_SUCCESS) {
+		RETURN_LONG (new_value);
+	}
+	/* No exception on this, just means that key doesnt exist */
+	else
+	if (rc == MEMCACHED_NOTFOUND) {
+		RETURN_FALSE;
+	}
+	if (s_handle_libmemcached_return (intern->memc, (operation == PHP_MEMC_LITE_OP_INCR) ? "MemcachedLite::increment" : "MemcachedLite::decrement", rc TSRMLS_CC)) {
+		return;
+	}
+}
+
+/* {{{ proto bool MemcachedLite::increment(string $key[, int $offset = 1])
+    Increment a key
+*/
+PHP_METHOD(memcachedlite, increment)
+{
+	s_memc_lite_interval_op (INTERNAL_FUNCTION_PARAM_PASSTHRU, PHP_MEMC_LITE_OP_INCR);
+}
+/* }}} */
+
+/* {{{ proto bool MemcachedLite::decrement(string $key[, int $offset = 1])
+    Increment a key
+*/
+PHP_METHOD(memcachedlite, decrement)
+{
+	s_memc_lite_interval_op (INTERNAL_FUNCTION_PARAM_PASSTHRU, PHP_MEMC_LITE_OP_DECR);
+}
+/* }}} */
+
+/* {{{ proto bool MemcachedLite::set_binary_protocol(bool $value)
+    Turn on binary protocol
+*/
+PHP_METHOD(memcachedlite, set_binary_protocol)
+{
+	php_memc_lite_object *intern;
+	memcached_return rc;
+	zend_bool binary_proto;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "b", &binary_proto) == FAILURE) {
+		return;
+	}
+
+	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
+
+	rc = memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL, binary_proto);
+	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::set_binary_protocol", rc TSRMLS_CC)) {
+		return;
+	}
+
+	RETURN_TRUE;
+}
+/* }}} */
+
+/* {{{ proto bool MemcachedLite::get_binary_protocol()
+    Check whether binary protocol is currently used
+*/
+PHP_METHOD(memcachedlite, get_binary_protocol)
+{
+	php_memc_lite_object *intern;
+	uint64_t binary_proto;
+
+	if (zend_parse_parameters_none() == FAILURE) {
+		return;
+	}
+
+	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
+
+	binary_proto = memcached_behavior_get (intern->memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL);
+	RETURN_BOOL (binary_proto == 1 ? 1 : 0);
+}
+/* }}} */
+
 
 ZEND_BEGIN_ARG_INFO_EX(memc_lite_add_server_args, 0, 0, 1)
 	ZEND_ARG_INFO(0, host)
@@ -406,13 +663,52 @@ ZEND_BEGIN_ARG_INFO_EX(memc_lite_get_args, 0, 0, 1)
 	ZEND_ARG_INFO(1, exists)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(memc_lite_exist_args, 0, 0, 1)
+	ZEND_ARG_INFO(0, key)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(memc_lite_touch_args, 0, 0, 1)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(memc_lite_delete_args, 0, 0, 1)
+	ZEND_ARG_INFO(0, key)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(memc_lite_increment_args, 0, 0, 1)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, offset)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(memc_lite_decrement_args, 0, 0, 1)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, offset)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(memc_lite_set_binary_protocol_args, 0, 0, 1)
+	ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(memc_lite_get_binary_protocol_args, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
 static
 zend_function_entry php_memc_lite_class_methods[] =
 {
 	PHP_ME(memcachedlite, add_server, memc_lite_add_server_args, ZEND_ACC_PUBLIC)
 	PHP_ME(memcachedlite, set,        memc_lite_set_args,        ZEND_ACC_PUBLIC)
-	//PHP_ME(memcachedlite, add,        memc_lite_add_args,        ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, add,        memc_lite_add_args,        ZEND_ACC_PUBLIC)
 	PHP_ME(memcachedlite, get,        memc_lite_get_args,        ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, exist,      memc_lite_exist_args,      ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, touch,      memc_lite_touch_args,      ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, delete,     memc_lite_delete_args,     ZEND_ACC_PUBLIC)
+
+	PHP_ME(memcachedlite, increment,  memc_lite_increment_args,  ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, decrement,  memc_lite_decrement_args,  ZEND_ACC_PUBLIC)
+
+	PHP_ME(memcachedlite, set_binary_protocol,  memc_lite_set_binary_protocol_args,  ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, get_binary_protocol,  memc_lite_get_binary_protocol_args,  ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
 
@@ -457,6 +753,8 @@ zend_object_value php_memc_lite_object_new(zend_class_entry *class_type TSRMLS_D
 	if (!intern->memc) {
 		zend_error (E_ERROR, "Failed to allocate memory for struct memcached_st");
 	}
+
+	//memcached_behavior_set (intern->memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL, 1);
 
 	zend_object_std_init(&intern->zo, class_type TSRMLS_CC);
 	object_properties_init(&intern->zo, class_type);
