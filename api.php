@@ -5,6 +5,8 @@ class MemcachedLite {
     const DISTRIBUTION_MODULO;
     const DISTRIBUTION_KETAMA;
     const DISTRIBUTION_VIRTUAL_BUCKET;
+    
+    public function __construct ($persistentId = null, $callable = null);
 
     public function add_server ($host, $port = 11211, $weight = 0);
     

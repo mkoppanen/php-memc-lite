@@ -4,10 +4,12 @@ Test exists method
 <?php require_once(dirname(__FILE__) . '/skipif.inc'); ?>
 --FILE--
 <?php
+require __DIR__ . '/test_driver.inc';
+
 $exists = null;
 
 $memc = new MemcachedLite ();
-$memc->add_server ('127.0.0.1', 11211);
+$memc->add_server (TEST_MEMCACHED_HOST, TEST_MEMCACHED_PORT);
 
 $memc->set ('expires', 'hi', 1);
 var_dump ($memc->exist ('expires'));
