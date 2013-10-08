@@ -32,8 +32,6 @@
 #  include <sys/endian.h>
 #elif defined(__OpenBSD__)
 #  include <sys/types.h>
-#  define be16toh(x) betoh16(x)
-#  define be32toh(x) betoh32(x)
 #  define be64toh(x) betoh64(x)
 #elif defined(__APPLE__)
 #  include <libkern/OSByteOrder.h>
@@ -426,17 +424,6 @@ char *s_marshall_value (zval *orig_value, size_t *length, uint32_t *flags, zend_
 }
 
 static
-void s_uint64_to_zval (zval *target, uint64_t value TSRMLS_DC)
-{
-	char *buffer;
-	uint64_t big_endian = htobe64 (value);
-
-	buffer = emalloc (sizeof (uint64_t));
-	memcpy (buffer, &big_endian, sizeof (uint64_t));
-	ZVAL_STRINGL (target, buffer, sizeof (uint64_t), 0);
-}
-
-static
 uint64_t s_zval_to_uint64 (zval *source TSRMLS_DC)
 {
 	uint64_t big_endian;
@@ -671,6 +658,16 @@ void s_unmarshall_value (zval *return_value, const char *value, size_t value_len
 	}
 }
 
+static
+void s_uint64_to_zval (zval *target, uint64_t value TSRMLS_DC)
+{
+	char buffer [sizeof (uint64_t)];
+	uint64_t big_endian = htobe64 (value);
+
+	memcpy (buffer, &big_endian, sizeof (uint64_t));
+	ZVAL_STRINGL (target, buffer, sizeof (uint64_t), 1);
+}
+
 /* {{{ proto mixed MemcachedLite::get(string $key[, bool $exists = null])
     Set a key to a value
 */
@@ -713,9 +710,10 @@ PHP_METHOD(memcachedlite, get)
 		memcached_result_create (intern->internal->memc, &result);
 
 		if (memcached_fetch_result (intern->internal->memc, &result, &rc) != NULL) {
-			if (cas)
-				s_uint64_to_zval (cas, memcached_result_cas (&result));
-
+			if (cas) {
+				zval_dtor (cas);
+				s_uint64_to_zval (cas, memcached_result_cas (&result) TSRMLS_CC);
+			}
 			s_unmarshall_value (return_value, memcached_result_value (&result),
 											  memcached_result_length (&result),
 											  memcached_result_flags (&result) TSRMLS_CC);
@@ -733,6 +731,7 @@ PHP_METHOD(memcachedlite, get)
 	}
 
 	if (cas) {
+		zval_dtor (cas);
 		ZVAL_NULL (cas);
 	}
 
