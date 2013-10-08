@@ -4,18 +4,25 @@ Expiring records
 <?php require_once(dirname(__FILE__) . '/skipif.inc'); ?>
 --FILE--
 <?php
-$exists = null;
 
-$memc = new MemcachedLite ();
-$memc->add_server ('127.0.0.1', 11211);
+require __DIR__ . '/test_driver.inc';
 
-$memc->set ('expires', 'hi', 1);
-sleep (2);
+function run_expiry_test ($memc)
+{
+	$memc->set ('expires', 'hi', 1);
+	sleep (2);
+	var_dump ($memc->get ('expires'));
+}
 
-var_dump ($memc->get ('expires'));
+run_memc_lite_test (true, 'run_expiry_test');
+run_memc_lite_test (false, 'run_expiry_test');
+
 echo "OK" . PHP_EOL;
 
 ?>
 --EXPECT--
+BINARY PROTO
+NULL
+ASCII PROTO
 NULL
 OK

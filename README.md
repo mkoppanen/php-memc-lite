@@ -24,9 +24,7 @@ Install fairly recent libmemcached and run:
 
 If tests fail, just give me a ping.
 
+FastLZ
+------
 
-TODO
-----
-
-- Add rest of the API based on api.php
-- Testing with binary protocol
+This extension uses bundled FastLZ. The license is available at fastlz/LICENSE

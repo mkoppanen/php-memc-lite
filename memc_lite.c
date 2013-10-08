@@ -24,6 +24,8 @@
 
 #include <libmemcached/memcached.h>
 
+#include "fastlz/fastlz.h"
+
 #if defined(__linux__)
 #  include <endian.h>
 #elif defined(__FreeBSD__) || defined(__NetBSD__)
@@ -58,6 +60,7 @@ typedef struct _php_memc_lite_object  {
 	zend_object zo;
 	memcached_st *memc;
 	php_memc_lite_distribution_t distribution;
+	zend_bool compression;
 } php_memc_lite_object;
 
 typedef enum _php_memc_lite_op_t {
@@ -73,7 +76,7 @@ typedef enum _php_memc_lite_op_t {
 #define MEMC_LITE_FLAG_IS_SERIALIZED (1 << 6)
 #define MEMC_LITE_FLAG_IS_COMPRESSED (1 << 7)
 
-#define MEMC_LITE_VERY_SMALL 48
+#define MEMC_LITE_VERY_SMALL 128
 
 static
 zend_bool s_handle_libmemcached_return (memcached_st *memc, const char *name, memcached_return rc TSRMLS_DC)
@@ -155,42 +158,69 @@ PHP_METHOD(memcachedlite, get_servers)
 /* }}} */
 
 static
-char *s_marshall_value (zval *orig_value, size_t *length, uint32_t *flags, zend_bool *allocated, char *small_buffer TSRMLS_DC)
+char *s_compress_value (const char *value, size_t *value_len)
 {
+	uint32_t uncompressed_size;
+	zend_bool status;
+
+	char *buffer = emalloc (sizeof (uint32_t) + (*value_len * 1.1));
+
+	uncompressed_size = (uint32_t) *value_len;
+	uncompressed_size = htonl (uncompressed_size);
+
+	memcpy (buffer, &uncompressed_size, sizeof (uint32_t));
+
+	buffer += sizeof (uint32_t);
+	status  = ((*value_len = fastlz_compress (value, (*value_len), buffer)) > 0);
+	buffer -= sizeof (uint32_t);
+
+	if (!status) {
+		efree (buffer);
+		return NULL;
+	}
+	*value_len += sizeof (uint32_t);
+	return buffer;
+}
+
+static
+char *s_marshall_value (zval *orig_value, size_t *length, uint32_t *flags, zend_bool *allocated, char *small_buffer, zend_bool compress TSRMLS_DC)
+{
+	char *value_ptr = NULL;
+
 	*length    = -1;
 	*flags     = 0;
 	*allocated = 0;
 
 	switch (Z_TYPE_P (orig_value)) {
 		case IS_STRING:
-			*flags |= MEMC_LITE_FLAG_IS_STRING;
-			*length = Z_STRLEN_P (orig_value);
-			return    Z_STRVAL_P (orig_value);
+			*flags   |= MEMC_LITE_FLAG_IS_STRING;
+			*length   = Z_STRLEN_P (orig_value);
+			value_ptr = Z_STRVAL_P (orig_value);
 		break;
 
 		case IS_LONG:
-			*flags |= MEMC_LITE_FLAG_IS_LONG;
-			*length = snprintf (small_buffer, MEMC_LITE_VERY_SMALL, "%ld", Z_LVAL_P (orig_value));
-			return small_buffer;
+			*flags   |= MEMC_LITE_FLAG_IS_LONG;
+			*length   = snprintf (small_buffer, MEMC_LITE_VERY_SMALL, "%ld", Z_LVAL_P (orig_value));
+			value_ptr = small_buffer;
 		break;
 
 		case IS_DOUBLE:
 			*flags |= MEMC_LITE_FLAG_IS_DOUBLE;
 			*length = snprintf (small_buffer, MEMC_LITE_VERY_SMALL, "%.20f", Z_DVAL_P (orig_value));
-			return small_buffer;
+			value_ptr = small_buffer;
 		break;
 
 		case IS_BOOL:
 			*flags |= MEMC_LITE_FLAG_IS_BOOL;
 			*length = snprintf (small_buffer, MEMC_LITE_VERY_SMALL, "%d", (Z_BVAL_P (orig_value) ? 1 : 0));
-			return small_buffer;
+			value_ptr = small_buffer;
 		break;
 
 		case IS_NULL:
 			*flags |= MEMC_LITE_FLAG_IS_NULL;
 			*length = 1;
 			small_buffer [0] = 0;
-			return small_buffer;
+			value_ptr = small_buffer;
 		break;
 
 		case IS_OBJECT:
@@ -214,19 +244,38 @@ char *s_marshall_value (zval *orig_value, size_t *length, uint32_t *flags, zend_
 			if (buffer.len < MEMC_LITE_VERY_SMALL) {
 				memcpy (small_buffer, buffer.c, buffer.len);
 				smart_str_free (&buffer);
-				return small_buffer;
+				value_ptr = small_buffer;
 			} else {
 				char *retval;
 				retval  = estrdup (buffer.c);
 				smart_str_free (&buffer);
 
 				*allocated = 1;
-				return retval;
+				value_ptr = retval;
 			}
 		}
 		break;
 	}
-	return NULL;
+
+	/* Whether to compress the value */
+	if (compress && *length > MEMC_LITE_VERY_SMALL) {
+		char *compressed = s_compress_value (value_ptr, length TSRMLS_CC);
+
+		if (!compressed) {
+			if (*allocated) {
+				efree (value_ptr);
+			}
+			return NULL;
+		}
+
+		if (*allocated) {
+			efree (value_ptr);
+		}
+		value_ptr    = compressed;
+		*allocated   = 1;
+		*flags      |= MEMC_LITE_FLAG_IS_COMPRESSED;
+	}
+	return value_ptr;
 }
 
 static
@@ -275,7 +324,7 @@ PHP_METHOD(memcachedlite, set)
 	}
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
-	store_value = s_marshall_value (value, &store_value_len, &flags, &allocated, buffer TSRMLS_CC);
+	store_value = s_marshall_value (value, &store_value_len, &flags, &allocated, buffer, intern->compression TSRMLS_CC);
 
 	if (store_value) {
 		if (cas && Z_TYPE_P (cas) != IS_NULL) {
@@ -330,7 +379,7 @@ PHP_METHOD(memcachedlite, add)
 	}
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
-	store_value = s_marshall_value (value, &store_value_len, &flags, &allocated, buffer TSRMLS_CC);
+	store_value = s_marshall_value (value, &store_value_len, &flags, &allocated, buffer, intern->compression TSRMLS_CC);
 
 	if (store_value) {
 		rc = memcached_add (intern->memc, key, key_len, store_value, store_value_len, (time_t) ttl, flags);
@@ -360,8 +409,48 @@ PHP_METHOD(memcachedlite, add)
 /* }}} */
 
 static
+char *s_uncompress_value (const char *value, size_t *value_len TSRMLS_DC)
+{
+	zend_bool status;
+	char *buffer;
+	uint32_t original_size;
+	memcpy (&original_size, value, sizeof (uint32_t));
+
+	original_size = ntohl (original_size);
+
+	if (original_size < *value_len) {
+		return NULL;
+	}
+	/* Allocate decompression buffer */
+	buffer = emalloc (original_size);
+
+	value      += sizeof (uint32_t);
+	*value_len -= sizeof (uint32_t);
+
+	status = ((*value_len = fastlz_decompress (value, *value_len, buffer, original_size)) > 0);
+
+	if (!status) {
+		efree (buffer);
+		return NULL;
+	}
+	return buffer;
+}
+
+static
 void s_unmarshall_value (zval *return_value, const char *value, size_t value_len, uint32_t flags TSRMLS_DC)
 {
+	char *decompressed = NULL;
+
+	if (flags & MEMC_LITE_FLAG_IS_COMPRESSED) {
+		decompressed = s_uncompress_value (value, &value_len TSRMLS_CC);
+
+		if (!decompressed) {
+			zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall compressed value", -1 TSRMLS_CC);
+			return;
+		}
+		value = decompressed;
+	}
+
 	if (flags & MEMC_LITE_FLAG_IS_STRING) {
 		ZVAL_STRINGL (return_value, value, value_len, 1);
 	}
@@ -375,50 +464,50 @@ void s_unmarshall_value (zval *return_value, const char *value, size_t value_len
 		if ((errno == ERANGE && (l_val == LONG_MAX || l_val == LONG_MIN)) ||
 		    (errno != 0 && l_val == 0)) {
 		   zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall long value", -1 TSRMLS_CC);
-           return;
+		} else {
+			ZVAL_LONG (return_value, l_val);
 		}
-		ZVAL_LONG (return_value, l_val);
-		return;
 	}
 	else
 	if (flags & MEMC_LITE_FLAG_IS_DOUBLE) {
 		double d_val = zend_strtod (value, NULL);
 		ZVAL_DOUBLE (return_value, d_val);
-		return;
 	}
 	else
 	if (flags & MEMC_LITE_FLAG_IS_BOOL) {
 		if (value_len != 1) {
 			zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall boolean value", -1 TSRMLS_CC);
-			return;
+		} else {
+			ZVAL_BOOL (return_value, value [0] == '1');
 		}
-		ZVAL_BOOL (return_value, value [0] == '1');
-		return;
 	}
 	else
 	if (flags & MEMC_LITE_FLAG_IS_NULL) {
 		if (value_len != 1) {
 			zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall null value", -1 TSRMLS_CC);
-			return;
+		} else {
+			ZVAL_NULL (return_value);
 		}
-		ZVAL_NULL (return_value);
-		return;
 	}
 	else
 	if (flags & MEMC_LITE_FLAG_IS_SERIALIZED) {
+		zend_bool rc;
 		php_unserialize_data_t var_hash;
 
 		PHP_VAR_UNSERIALIZE_INIT(var_hash);
-		if (!php_var_unserialize (&return_value, (const unsigned char **) &value, (const unsigned char *) value + value_len, &var_hash TSRMLS_CC)) {
-			PHP_VAR_UNSERIALIZE_DESTROY(var_hash);
-			zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall serialized value", -1 TSRMLS_CC);
-			return;
-		}
+		rc = php_var_unserialize (&return_value, (const unsigned char **) &value, (const unsigned char *) value + value_len, &var_hash TSRMLS_CC);
 		PHP_VAR_UNSERIALIZE_DESTROY(var_hash);
+
+		if (!rc) {
+			zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall serialized value", -1 TSRMLS_CC);
+		}
 	}
 	else {
 		zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall unknown value", -1 TSRMLS_CC);
-		return;
+	}
+
+	if (decompressed) {
+		efree (decompressed);
 	}
 }
 
@@ -756,6 +845,42 @@ PHP_METHOD(memcachedlite, get_distribution)
 }
 /* }}} */
 
+/* {{{ proto bool MemcachedLite::set_compression(bool $value)
+    Set value compression value
+*/
+PHP_METHOD(memcachedlite, set_compression)
+{
+	php_memc_lite_object *intern;
+	memcached_return rc;
+	zend_bool compression;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "b", &compression) == FAILURE) {
+		return;
+	}
+
+	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
+	intern->compression = compression;
+
+	RETURN_TRUE;
+}
+/* }}} */
+
+/* {{{ proto bool MemcachedLite::get_compression()
+    Get value compression value
+*/
+PHP_METHOD(memcachedlite, get_compression)
+{
+	php_memc_lite_object *intern;
+
+	if (zend_parse_parameters_none() == FAILURE) {
+		return;
+	}
+
+	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
+	RETURN_BOOL (intern->compression);
+}
+/* }}} */
+
 
 ZEND_BEGIN_ARG_INFO_EX(memc_lite_add_server_args, 0, 0, 1)
 	ZEND_ARG_INFO(0, host)
@@ -819,6 +944,13 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(memc_lite_get_distribution_args, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(memc_lite_set_compression_args, 0, 0, 1)
+	ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(memc_lite_get_compression_args, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
 static
 zend_function_entry php_memc_lite_class_methods[] =
 {
@@ -839,6 +971,9 @@ zend_function_entry php_memc_lite_class_methods[] =
 
 	PHP_ME(memcachedlite, set_distribution,  memc_lite_set_distribution_args,  ZEND_ACC_PUBLIC)
 	PHP_ME(memcachedlite, get_distribution,  memc_lite_get_distribution_args,  ZEND_ACC_PUBLIC)
+
+	PHP_ME(memcachedlite, set_compression,  memc_lite_set_compression_args,  ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, get_compression,  memc_lite_get_compression_args,  ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
 
@@ -884,6 +1019,7 @@ zend_object_value php_memc_lite_object_new(zend_class_entry *class_type TSRMLS_D
 		zend_error (E_ERROR, "Failed to allocate memory for struct memcached_st");
 	}
 
+	intern->compression  = 0;
 	intern->distribution = PHP_MEMC_LITE_DISTRIBUTION_MODULO;
 
 	memcached_behavior_set (intern->memc, MEMCACHED_BEHAVIOR_DISTRIBUTION, MEMCACHED_DISTRIBUTION_MODULA);
