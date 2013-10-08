@@ -28,3 +28,8 @@ FastLZ
 ------
 
 This extension uses bundled FastLZ. The license is available at fastlz/LICENSE
+
+TODO
+----
+
+- Persistent connections
