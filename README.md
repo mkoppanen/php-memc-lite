@@ -29,6 +29,36 @@ FastLZ
 
 This extension uses bundled FastLZ. The license is available at fastlz/LICENSE
 
+FAQ
+---
+
+Disclaimer: no one actually asked these questions. I made them up with hand puppets.
+
+#### Q: Can you add serializer X (igbinary, json etc) ?
+
+No. It adds unnecessary complexity. If you want different serializer, just serialise
+to string before saving. The extension stores strings as is.
+
+#### Q: How do persistent connections work?
+
+That's a very good question. The constructor takes two parameters: id and callable.
+The callable is invoked only when a new internal structure is created. The callable
+is an ideal place to add servers to make sure you only add them once per structure.
+
+Throwing exception in the callable will propagate up and it will be thrown in the outer
+scope.
+
+Example:
+
+    <?php
+    $lite = new MemcachedLite ('my_conn', function (MemcachedLite $obj, $persistent_id) {
+                                              echo "Initialising {$persistent_id}" . PHP_EOL;
+                                              $obj->set_binary_protocol (true);
+                                              $obj->add_server ('127.0.0.1', 11211);
+                                          });
+    // Use $lite here
+
+
 TODO
 ----
 

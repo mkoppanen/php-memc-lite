@@ -48,6 +48,9 @@ static
 static
 	zend_object_handlers memc_lite_object_handlers;
 
+static
+	int le_memc_lite_internal_st;
+
 typedef enum _php_memc_lite_distribution_t {
 	PHP_MEMC_LITE_DISTRIBUTION_MIN,
 	PHP_MEMC_LITE_DISTRIBUTION_MODULO,
@@ -56,11 +59,16 @@ typedef enum _php_memc_lite_distribution_t {
 	PHP_MEMC_LITE_DISTRIBUTION_MAX
 } php_memc_lite_distribution_t;
 
-typedef struct _php_memc_lite_object  {
-	zend_object zo;
+typedef struct _php_memc_lite_internal_t {
 	memcached_st *memc;
+	zend_bool is_persistent;
 	php_memc_lite_distribution_t distribution;
 	zend_bool compression;
+} php_memc_lite_internal_t;
+
+typedef struct _php_memc_lite_object  {
+	zend_object zo;
+	php_memc_lite_internal_t *internal;
 } php_memc_lite_object;
 
 typedef enum _php_memc_lite_op_t {
@@ -89,6 +97,145 @@ zend_bool s_handle_libmemcached_return (memcached_st *memc, const char *name, me
 	return 1;
 }
 
+static
+php_memc_lite_internal_t *s_memc_lite_internal_new (zend_bool is_persistent)
+{
+	php_memc_lite_internal_t *internal;
+
+	internal = pecalloc(1, sizeof (php_memc_lite_internal_t), is_persistent);
+
+	// Create a new memcached_st struct
+	internal->memc = memcached_create (NULL);
+
+	if (!internal->memc) {
+		zend_error (E_ERROR, "Failed to allocate memory for struct memcached_st");
+	}
+
+	internal->compression  = 0;
+	internal->distribution = PHP_MEMC_LITE_DISTRIBUTION_MODULO;
+
+	memcached_behavior_set (internal->memc, MEMCACHED_BEHAVIOR_DISTRIBUTION, MEMCACHED_DISTRIBUTION_MODULA);
+	memcached_behavior_set (internal->memc, MEMCACHED_BEHAVIOR_HASH, MEMCACHED_HASH_DEFAULT);
+
+	internal->is_persistent = is_persistent;
+	return internal;
+}
+
+static
+php_memc_lite_internal_t *s_memc_lite_internal_get (const char *persistent_id, zend_bool *is_new TSRMLS_DC)
+{
+	zend_bool is_persistent;
+	php_memc_lite_internal_t *internal;
+
+	char *plist_key;
+	int plist_key_len;
+	zend_rsrc_list_entry le, *le_p = NULL;
+
+	*is_new = 0;
+	is_persistent = (persistent_id ? 1 : 0);
+
+	if (is_persistent) {
+		plist_key_len = spprintf (&plist_key, 0, "memc_lite:[%s]", persistent_id);
+
+		if (zend_hash_find(&EG(persistent_list), plist_key, plist_key_len, (void *) &le_p) == SUCCESS) {
+			if (le_p->type == le_memc_lite_internal_st) {
+				efree (plist_key);
+				return (php_memc_lite_internal_t *) le_p->ptr;
+			}
+		}
+	}
+
+	internal = s_memc_lite_internal_new (is_persistent TSRMLS_CC);
+	*is_new  = 1;
+
+	if (is_persistent) {
+		le.type = le_memc_lite_internal_st;
+		le.ptr  = internal;
+
+		if (zend_hash_update(&EG(persistent_list), (char *)plist_key, plist_key_len, (void *)&le, sizeof(le), NULL) == FAILURE) {
+			efree (plist_key);
+			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Could not register persistent entry for the context");
+		}
+		efree (plist_key);
+	}
+	return internal;
+}
+
+static
+zend_bool s_invoke_on_new_object(zval *socket, zend_fcall_info *fci, zend_fcall_info_cache *fci_cache, const char *persistent_id TSRMLS_DC)
+{
+	zval *retval_ptr, *pid_z;
+	zval **params[2];
+	zend_bool retval = 1;
+
+	ALLOC_INIT_ZVAL(pid_z);
+
+	if (persistent_id) {
+		ZVAL_STRING(pid_z, persistent_id, 1);
+	} else {
+		ZVAL_NULL(pid_z);
+	}
+
+	/* Call the cb */
+	params[0] = &socket;
+	params[1] = &pid_z;
+
+	fci->params         = params;
+	fci->param_count    = 2;
+	fci->retval_ptr_ptr = &retval_ptr;
+	fci->no_separation  = 1;
+
+	if (zend_call_function(fci, fci_cache TSRMLS_CC) == FAILURE) {
+		if (!EG(exception)) {
+			zend_throw_exception_ex (php_memc_lite_exception_sc_entry, 0 TSRMLS_CC, "Failed to invoke 'on_new_socket' callback %s()", Z_STRVAL_P (fci->function_name));
+		}
+		retval = 0;
+	}
+	zval_ptr_dtor(&pid_z);
+
+	if (retval_ptr) {
+		zval_ptr_dtor(&retval_ptr);
+	}
+
+	if (EG(exception)) {
+		retval = 0;
+	}
+
+	return retval;
+}
+
+/* {{{ proto bool MemcachedLite::__construct ([string $persistent_id = null[, callable $callable]])
+    Create a new object
+*/
+PHP_METHOD(memcachedlite, __construct)
+{
+	php_memc_lite_object *intern;
+	char *persistent_id = NULL;
+	int persistent_id_len = 0;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fci_cache;
+	zend_bool is_new = 0;
+
+	fci.size = 0;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|s!f!", &persistent_id, &persistent_id_len, &fci, &fci_cache) == FAILURE) {
+		return;
+	}
+
+	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
+	intern->internal = s_memc_lite_internal_get (persistent_id, &is_new TSRMLS_CC);
+
+	if (is_new) {
+		if (fci.size) {
+			if (!s_invoke_on_new_object (getThis(), &fci, &fci_cache, persistent_id TSRMLS_CC)) {
+				/* TODO: destroy intern->internal */
+				return;
+			}
+		}
+	}
+}
+/* }}} */
+
 /* {{{ proto bool MemcachedLite::add_server(string $host[, int $port = 11211[, int $weight = 1]])
     Add a new server connection
 */
@@ -106,9 +253,9 @@ PHP_METHOD(memcachedlite, add_server)
 	}
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
-	rc = memcached_server_add_with_weight (intern->memc, host, port, (uint32_t) weight);
+	rc = memcached_server_add_with_weight (intern->internal->memc, host, port, (uint32_t) weight);
 
-	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::add_server", rc TSRMLS_CC)) {
+	if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::add_server", rc TSRMLS_CC)) {
 		return;
 	}
 	RETURN_TRUE;
@@ -149,9 +296,9 @@ PHP_METHOD(memcachedlite, get_servers)
 	cb [0] =& s_server_list_to_zval;
 	array_init (return_value);
 
-	rc = memcached_server_cursor (intern->memc, cb, (void *) return_value, 1);
+	rc = memcached_server_cursor (intern->internal->memc, cb, (void *) return_value, 1);
 
-	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::add_server", rc TSRMLS_CC)) {
+	if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::add_server", rc TSRMLS_CC)) {
 		return;
 	}
 }
@@ -324,17 +471,17 @@ PHP_METHOD(memcachedlite, set)
 	}
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
-	store_value = s_marshall_value (value, &store_value_len, &flags, &allocated, buffer, intern->compression TSRMLS_CC);
+	store_value = s_marshall_value (value, &store_value_len, &flags, &allocated, buffer, intern->internal->compression TSRMLS_CC);
 
 	if (store_value) {
 		if (cas && Z_TYPE_P (cas) != IS_NULL) {
-			memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 1);
+			memcached_behavior_set(intern->internal->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 1);
 
-			rc = memcached_cas (intern->memc, key, key_len, store_value, store_value_len, (time_t) ttl, flags, s_zval_to_uint64 (cas));
+			rc = memcached_cas (intern->internal->memc, key, key_len, store_value, store_value_len, (time_t) ttl, flags, s_zval_to_uint64 (cas));
 
-			memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 0);
+			memcached_behavior_set(intern->internal->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 0);
 		} else {
-			rc = memcached_set (intern->memc, key, key_len, store_value, store_value_len, (time_t) ttl, flags);
+			rc = memcached_set (intern->internal->memc, key, key_len, store_value, store_value_len, (time_t) ttl, flags);
 		}
 
 		if (allocated) {
@@ -346,11 +493,11 @@ PHP_METHOD(memcachedlite, set)
 	}
 
 	/* For some reason some values give MEMCACHED_END when binary protocol is used */
-	if (memcached_behavior_get (intern->memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL) && rc == MEMCACHED_END) {
+	if (memcached_behavior_get (intern->internal->memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL) && rc == MEMCACHED_END) {
 		RETURN_TRUE;
 	}
 
-	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::set", rc TSRMLS_CC)) {
+	if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::set", rc TSRMLS_CC)) {
 		return;
 	}
 	RETURN_TRUE;
@@ -379,10 +526,10 @@ PHP_METHOD(memcachedlite, add)
 	}
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
-	store_value = s_marshall_value (value, &store_value_len, &flags, &allocated, buffer, intern->compression TSRMLS_CC);
+	store_value = s_marshall_value (value, &store_value_len, &flags, &allocated, buffer, intern->internal->compression TSRMLS_CC);
 
 	if (store_value) {
-		rc = memcached_add (intern->memc, key, key_len, store_value, store_value_len, (time_t) ttl, flags);
+		rc = memcached_add (intern->internal->memc, key, key_len, store_value, store_value_len, (time_t) ttl, flags);
 
 		if (allocated) {
 			efree (store_value);
@@ -402,7 +549,7 @@ PHP_METHOD(memcachedlite, add)
 	}
 
 	/* Seems like we have error */
-	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::add", rc TSRMLS_CC)) {
+	if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::add", rc TSRMLS_CC)) {
 		return;
 	}
 }
@@ -535,21 +682,21 @@ PHP_METHOD(memcachedlite, get)
 		size_t keys_len [1] = { key_len };
 
 		if (cas)
-			memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 1);
+			memcached_behavior_set(intern->internal->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 1);
 
-		rc = memcached_mget (intern->memc, keys, keys_len, 1);
+		rc = memcached_mget (intern->internal->memc, keys, keys_len, 1);
 
 		if (cas)
-			memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 0);
+			memcached_behavior_set(intern->internal->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 0);
 
-		if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::get", rc TSRMLS_CC)) {
+		if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::get", rc TSRMLS_CC)) {
 			return;
 		}
 
 		rc = MEMCACHED_SUCCESS;
-		memcached_result_create (intern->memc, &result);
+		memcached_result_create (intern->internal->memc, &result);
 
-		if (memcached_fetch_result (intern->memc, &result, &rc) != NULL) {
+		if (memcached_fetch_result (intern->internal->memc, &result, &rc) != NULL) {
 			if (cas)
 				s_uint64_to_zval (cas, memcached_result_cas (&result));
 
@@ -577,7 +724,7 @@ PHP_METHOD(memcachedlite, get)
 		RETURN_NULL();
 	}
 
-	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::get", rc TSRMLS_CC)) {
+	if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::get", rc TSRMLS_CC)) {
 		return;
 	}
 }
@@ -598,7 +745,7 @@ PHP_METHOD(memcachedlite, exist)
 	}
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
-	rc = memcached_exist (intern->memc, key, key_len);
+	rc = memcached_exist (intern->internal->memc, key, key_len);
 
 	if (rc == MEMCACHED_SUCCESS) {
 		RETURN_TRUE;
@@ -608,7 +755,7 @@ PHP_METHOD(memcachedlite, exist)
 	if (rc == MEMCACHED_NOTFOUND) {
 		RETURN_FALSE;
 	}
-	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::exist", rc TSRMLS_CC)) {
+	if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::exist", rc TSRMLS_CC)) {
 		return;
 	}
 }
@@ -630,7 +777,7 @@ PHP_METHOD(memcachedlite, touch)
 	}
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
-	rc = memcached_touch (intern->memc, key, key_len, (time_t) ttl);
+	rc = memcached_touch (intern->internal->memc, key, key_len, (time_t) ttl);
 
 	if (rc == MEMCACHED_SUCCESS) {
 		RETURN_TRUE;
@@ -640,7 +787,7 @@ PHP_METHOD(memcachedlite, touch)
 	if (rc == MEMCACHED_NOTFOUND) {
 		RETURN_FALSE;
 	}
-	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::touch", rc TSRMLS_CC)) {
+	if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::touch", rc TSRMLS_CC)) {
 		return;
 	}
 }
@@ -661,7 +808,7 @@ PHP_METHOD(memcachedlite, delete)
 	}
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
-	rc = memcached_delete (intern->memc, key, key_len, 0);
+	rc = memcached_delete (intern->internal->memc, key, key_len, 0);
 
 	if (rc == MEMCACHED_SUCCESS) {
 		RETURN_TRUE;
@@ -671,7 +818,7 @@ PHP_METHOD(memcachedlite, delete)
 	if (rc == MEMCACHED_NOTFOUND) {
 		RETURN_FALSE;
 	}
-	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::delete", rc TSRMLS_CC)) {
+	if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::delete", rc TSRMLS_CC)) {
 		return;
 	}
 }
@@ -694,9 +841,9 @@ void s_memc_lite_interval_op (INTERNAL_FUNCTION_PARAMETERS, php_memc_lite_op_t o
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
 
 	if (operation == PHP_MEMC_LITE_OP_INCR)
-		rc = memcached_increment_with_initial (intern->memc, key, key_len, offset, initial, (time_t) ttl, &new_value);
+		rc = memcached_increment_with_initial (intern->internal->memc, key, key_len, offset, initial, (time_t) ttl, &new_value);
 	else
-		rc = memcached_decrement_with_initial (intern->memc, key, key_len, offset, initial, (time_t) ttl, &new_value);
+		rc = memcached_decrement_with_initial (intern->internal->memc, key, key_len, offset, initial, (time_t) ttl, &new_value);
 
 	if (rc == MEMCACHED_SUCCESS) {
 		RETURN_LONG (new_value);
@@ -706,7 +853,7 @@ void s_memc_lite_interval_op (INTERNAL_FUNCTION_PARAMETERS, php_memc_lite_op_t o
 	if (rc == MEMCACHED_NOTFOUND) {
 		RETURN_FALSE;
 	}
-	if (s_handle_libmemcached_return (intern->memc, (operation == PHP_MEMC_LITE_OP_INCR) ? "MemcachedLite::increment" : "MemcachedLite::decrement", rc TSRMLS_CC)) {
+	if (s_handle_libmemcached_return (intern->internal->memc, (operation == PHP_MEMC_LITE_OP_INCR) ? "MemcachedLite::increment" : "MemcachedLite::decrement", rc TSRMLS_CC)) {
 		return;
 	}
 }
@@ -744,8 +891,8 @@ PHP_METHOD(memcachedlite, set_binary_protocol)
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
 
-	rc = memcached_behavior_set(intern->memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL, binary_proto);
-	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::set_binary_protocol", rc TSRMLS_CC)) {
+	rc = memcached_behavior_set(intern->internal->memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL, binary_proto);
+	if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::set_binary_protocol", rc TSRMLS_CC)) {
 		return;
 	}
 
@@ -767,7 +914,7 @@ PHP_METHOD(memcachedlite, get_binary_protocol)
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
 
-	binary_proto = memcached_behavior_get (intern->memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL);
+	binary_proto = memcached_behavior_get (intern->internal->memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL);
 	RETURN_BOOL (binary_proto == 1 ? 1 : 0);
 }
 /* }}} */
@@ -792,27 +939,27 @@ PHP_METHOD(memcachedlite, set_distribution)
 
 		switch (distribution) {
 			case PHP_MEMC_LITE_DISTRIBUTION_MODULO:
-				rc = memcached_behavior_set (intern->memc, MEMCACHED_BEHAVIOR_DISTRIBUTION, MEMCACHED_DISTRIBUTION_MODULA);
-				if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::set_distribution", rc TSRMLS_CC)) {
+				rc = memcached_behavior_set (intern->internal->memc, MEMCACHED_BEHAVIOR_DISTRIBUTION, MEMCACHED_DISTRIBUTION_MODULA);
+				if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::set_distribution", rc TSRMLS_CC)) {
 					return;
 				}
 
-				rc = memcached_behavior_set (intern->memc, MEMCACHED_BEHAVIOR_HASH, MEMCACHED_HASH_DEFAULT);
-				if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::set_distribution", rc TSRMLS_CC)) {
+				rc = memcached_behavior_set (intern->internal->memc, MEMCACHED_BEHAVIOR_HASH, MEMCACHED_HASH_DEFAULT);
+				if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::set_distribution", rc TSRMLS_CC)) {
 					return;
 				}
 			break;
 
 			case PHP_MEMC_LITE_DISTRIBUTION_KETAMA:
-				rc = memcached_behavior_set (intern->memc, MEMCACHED_BEHAVIOR_KETAMA_WEIGHTED, 1);
-				if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::set_distribution", rc TSRMLS_CC)) {
+				rc = memcached_behavior_set (intern->internal->memc, MEMCACHED_BEHAVIOR_KETAMA_WEIGHTED, 1);
+				if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::set_distribution", rc TSRMLS_CC)) {
 					return;
 				}
 			break;
 
 			case PHP_MEMC_LITE_DISTRIBUTION_VBUCKET:
-				rc = memcached_behavior_set_distribution (intern->memc, MEMCACHED_DISTRIBUTION_VIRTUAL_BUCKET);
-				if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::set_distribution", rc TSRMLS_CC)) {
+				rc = memcached_behavior_set_distribution (intern->internal->memc, MEMCACHED_DISTRIBUTION_VIRTUAL_BUCKET);
+				if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::set_distribution", rc TSRMLS_CC)) {
 					return;
 				}
 			break;
@@ -820,7 +967,7 @@ PHP_METHOD(memcachedlite, set_distribution)
 			default:
 			break;
 		}
-		intern->distribution = distribution;
+		intern->internal->distribution = distribution;
 	}
 	RETURN_TRUE;
 }
@@ -838,7 +985,7 @@ PHP_METHOD(memcachedlite, get_distribution)
 	}
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
-	RETURN_LONG(intern->distribution);
+	RETURN_LONG(intern->internal->distribution);
 }
 /* }}} */
 
@@ -856,7 +1003,7 @@ PHP_METHOD(memcachedlite, set_compression)
 	}
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
-	intern->compression = compression;
+	intern->internal->compression = compression;
 
 	RETURN_TRUE;
 }
@@ -874,10 +1021,14 @@ PHP_METHOD(memcachedlite, get_compression)
 	}
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
-	RETURN_BOOL (intern->compression);
+	RETURN_BOOL (intern->internal->compression);
 }
 /* }}} */
 
+ZEND_BEGIN_ARG_INFO_EX(memc_lite_construct_args, 0, 0, 0)
+	ZEND_ARG_INFO(0, persistent_id)
+	ZEND_ARG_INFO(0, on_new)
+ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(memc_lite_add_server_args, 0, 0, 1)
 	ZEND_ARG_INFO(0, host)
@@ -951,6 +1102,7 @@ ZEND_END_ARG_INFO()
 static
 zend_function_entry php_memc_lite_class_methods[] =
 {
+	PHP_ME(memcachedlite, __construct, memc_lite_construct_args,   ZEND_ACC_PUBLIC)
 	PHP_ME(memcachedlite, add_server,  memc_lite_add_server_args,  ZEND_ACC_PUBLIC)
 	PHP_ME(memcachedlite, get_servers, memc_lite_get_servers_args, ZEND_ACC_PUBLIC)
 	PHP_ME(memcachedlite, set,         memc_lite_set_args,         ZEND_ACC_PUBLIC)
@@ -983,8 +1135,9 @@ void php_memc_lite_object_free_storage(void *object TSRMLS_DC)
 		return;
 	}
 
-	if (intern->memc)
-		memcached_free (intern->memc);
+	if (!intern->internal->is_persistent) {
+		memcached_free (intern->internal->memc);
+	}
 
 	zend_object_std_dtor(&intern->zo TSRMLS_CC);
 	efree(intern);
@@ -1009,18 +1162,7 @@ zend_object_value php_memc_lite_object_new(zend_class_entry *class_type TSRMLS_D
 
 	memset(&intern->zo, 0, sizeof(zend_object));
 
-	// Create a new memcached_st struct
-	intern->memc = memcached_create (NULL);
-
-	if (!intern->memc) {
-		zend_error (E_ERROR, "Failed to allocate memory for struct memcached_st");
-	}
-
-	intern->compression  = 0;
-	intern->distribution = PHP_MEMC_LITE_DISTRIBUTION_MODULO;
-
-	memcached_behavior_set (intern->memc, MEMCACHED_BEHAVIOR_DISTRIBUTION, MEMCACHED_DISTRIBUTION_MODULA);
-	memcached_behavior_set (intern->memc, MEMCACHED_BEHAVIOR_HASH, MEMCACHED_HASH_DEFAULT);
+	intern->internal = NULL;
 
 	zend_object_std_init(&intern->zo, class_type TSRMLS_CC);
 	object_properties_init(&intern->zo, class_type);
@@ -1030,10 +1172,27 @@ zend_object_value php_memc_lite_object_new(zend_class_entry *class_type TSRMLS_D
 	return retval;
 }
 
+ZEND_RSRC_DTOR_FUNC(s_memc_lite_internal_dtor)
+{
+	if (rsrc->ptr) {
+		php_memc_lite_internal_t *internal = (php_memc_lite_internal_t *) rsrc->ptr;
+
+		if (internal->memc)
+			memcached_free (internal->memc);
+
+		internal->memc = NULL;
+		rsrc->ptr = NULL;
+	}
+}
+
 PHP_MINIT_FUNCTION(memc_lite)
 {
 	zend_class_entry ce;
 	memcpy (&memc_lite_object_handlers, zend_get_std_object_handlers (), sizeof (zend_object_handlers));
+
+	/* Register destructors for persistent connections */
+	le_memc_lite_internal_st = zend_register_list_destructors_ex(NULL, &s_memc_lite_internal_dtor, "Memcached Lite persistent connection", module_number);
+
 
 	INIT_CLASS_ENTRY(ce, "MemcachedLiteException", NULL);
 	php_memc_lite_exception_sc_entry = zend_register_internal_class_ex(&ce, zend_exception_get_default(TSRMLS_C), NULL TSRMLS_CC);
