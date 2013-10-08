@@ -13,8 +13,25 @@ try {
 	echo "fail";
 }
 
+var_dump ($memc->get_servers ());
 echo "OK" . PHP_EOL;
 
 ?>
 --EXPECT--
+array(2) {
+  [0]=>
+  array(2) {
+    ["host"]=>
+    string(9) "localhost"
+    ["port"]=>
+    int(11211)
+  }
+  [1]=>
+  array(2) {
+    ["host"]=>
+    string(9) "127.0.0.1"
+    ["port"]=>
+    int(11211)
+  }
+}
 OK

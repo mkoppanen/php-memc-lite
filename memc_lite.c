@@ -39,11 +39,6 @@
 #  define be64toh(x) OSSwapBigToHostInt64(x)
 #endif
 
-typedef struct _php_memc_lite_object  {
-	zend_object zo;
-	memcached_st *memc;
-} php_memc_lite_object;
-
 static
 	zend_class_entry *php_memc_lite_sc_entry,
 					 *php_memc_lite_exception_sc_entry;
@@ -52,10 +47,18 @@ static
 	zend_object_handlers memc_lite_object_handlers;
 
 typedef enum _php_memc_lite_distribution_t {
-	PHP_MEMC_LITE_DISTRIBUTION_MODULO  = 1,
-	PHP_MEMC_LITE_DISTRIBUTION_KETAMA  = 2,
-	PHP_MEMC_LITE_DISTRIBUTION_VBUCKET = 3,
+	PHP_MEMC_LITE_DISTRIBUTION_MIN,
+	PHP_MEMC_LITE_DISTRIBUTION_MODULO,
+	PHP_MEMC_LITE_DISTRIBUTION_KETAMA,
+	PHP_MEMC_LITE_DISTRIBUTION_VBUCKET,
+	PHP_MEMC_LITE_DISTRIBUTION_MAX
 } php_memc_lite_distribution_t;
+
+typedef struct _php_memc_lite_object  {
+	zend_object zo;
+	memcached_st *memc;
+	php_memc_lite_distribution_t distribution;
+} php_memc_lite_object;
 
 typedef enum _php_memc_lite_op_t {
 	PHP_MEMC_LITE_OP_INCR  = 1,
@@ -83,7 +86,7 @@ zend_bool s_handle_libmemcached_return (memcached_st *memc, const char *name, me
 	return 1;
 }
 
-/* {{{ proto bool MemcachedLite::add_server(string $host[, int $port = 11211])
+/* {{{ proto bool MemcachedLite::add_server(string $host[, int $port = 11211[, int $weight = 1]])
     Add a new server connection
 */
 PHP_METHOD(memcachedlite, add_server)
@@ -93,18 +96,61 @@ PHP_METHOD(memcachedlite, add_server)
 	int host_len;
 	long port = 11211;
 	memcached_return rc;
+	long weight = 1;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|l!", &host, &host_len, &port) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|l!", &host, &host_len, &port, &weight) == FAILURE) {
 		return;
 	}
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
-	rc = memcached_server_add (intern->memc, host, port);
+	rc = memcached_server_add_with_weight (intern->memc, host, port, (uint32_t) weight);
 
 	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::add_server", rc TSRMLS_CC)) {
 		return;
 	}
 	RETURN_TRUE;
+}
+/* }}} */
+
+static
+memcached_return s_server_list_to_zval (const memcached_st *ptr, const memcached_instance_st *instance, void *context)
+{
+	zval *return_value, *server;
+
+	return_value = (zval *) context;
+
+	MAKE_STD_ZVAL (server);
+	array_init (server);
+	add_assoc_string (server, "host", memcached_server_name (instance), 1);
+	add_assoc_long (server, "port", memcached_server_port (instance));
+
+	add_next_index_zval (return_value, server);
+	return MEMCACHED_SUCCESS;
+}
+
+/* {{{ proto array MemcachedLite::get_servers()
+    Get a list of added servers
+*/
+PHP_METHOD(memcachedlite, get_servers)
+{
+	memcached_return rc;
+	php_memc_lite_object *intern;
+	memcached_server_function cb [1];
+
+	if (zend_parse_parameters_none () == FAILURE) {
+		return;
+	}
+
+	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
+
+	cb [0] =& s_server_list_to_zval;
+	array_init (return_value);
+
+	rc = memcached_server_cursor (intern->memc, cb, (void *) return_value, 1);
+
+	if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::add_server", rc TSRMLS_CC)) {
+		return;
+	}
 }
 /* }}} */
 
@@ -640,10 +686,83 @@ PHP_METHOD(memcachedlite, get_binary_protocol)
 }
 /* }}} */
 
+/* {{{ proto bool MemcachedLite::set_distribution(int $value)
+    Set key distribution method
+*/
+PHP_METHOD(memcachedlite, set_distribution)
+{
+	php_memc_lite_object *intern;
+	memcached_return rc;
+	long distrib;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "l", &distrib) == FAILURE) {
+		return;
+	}
+
+	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
+
+	if (distrib > PHP_MEMC_LITE_DISTRIBUTION_MIN && distrib < PHP_MEMC_LITE_DISTRIBUTION_MAX) {
+		php_memc_lite_distribution_t distribution = (php_memc_lite_distribution_t) distrib;
+
+		switch (distribution) {
+			case PHP_MEMC_LITE_DISTRIBUTION_MODULO:
+				rc = memcached_behavior_set (intern->memc, MEMCACHED_BEHAVIOR_DISTRIBUTION, MEMCACHED_DISTRIBUTION_MODULA);
+				if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::set_distribution", rc TSRMLS_CC)) {
+					return;
+				}
+
+				rc = memcached_behavior_set (intern->memc, MEMCACHED_BEHAVIOR_HASH, MEMCACHED_HASH_DEFAULT);
+				if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::set_distribution", rc TSRMLS_CC)) {
+					return;
+				}
+			break;
+
+			case PHP_MEMC_LITE_DISTRIBUTION_KETAMA:
+				rc = memcached_behavior_set (intern->memc, MEMCACHED_BEHAVIOR_KETAMA_WEIGHTED, 1);
+				if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::set_distribution", rc TSRMLS_CC)) {
+					return;
+				}
+			break;
+
+			case PHP_MEMC_LITE_DISTRIBUTION_VBUCKET:
+				rc = memcached_behavior_set_distribution (intern->memc, MEMCACHED_DISTRIBUTION_VIRTUAL_BUCKET);
+				if (s_handle_libmemcached_return (intern->memc, "MemcachedLite::set_distribution", rc TSRMLS_CC)) {
+					return;
+				}
+			break;
+
+			default:
+			break;
+		}
+		intern->distribution = distribution;
+	}
+	RETURN_TRUE;
+}
+/* }}} */
+
+/* {{{ proto bool MemcachedLite::get_distribution()
+    Get key distribution method
+*/
+PHP_METHOD(memcachedlite, get_distribution)
+{
+	php_memc_lite_object *intern;
+
+	if (zend_parse_parameters_none() == FAILURE) {
+		return;
+	}
+
+	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
+	RETURN_LONG(intern->distribution);
+}
+/* }}} */
+
 
 ZEND_BEGIN_ARG_INFO_EX(memc_lite_add_server_args, 0, 0, 1)
 	ZEND_ARG_INFO(0, host)
 	ZEND_ARG_INFO(0, port)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(memc_lite_get_servers_args, 0, 0, 1)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(memc_lite_set_args, 0, 0, 2)
@@ -693,22 +812,33 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(memc_lite_get_binary_protocol_args, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(memc_lite_set_distribution_args, 0, 0, 1)
+	ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(memc_lite_get_distribution_args, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
 static
 zend_function_entry php_memc_lite_class_methods[] =
 {
-	PHP_ME(memcachedlite, add_server, memc_lite_add_server_args, ZEND_ACC_PUBLIC)
-	PHP_ME(memcachedlite, set,        memc_lite_set_args,        ZEND_ACC_PUBLIC)
-	PHP_ME(memcachedlite, add,        memc_lite_add_args,        ZEND_ACC_PUBLIC)
-	PHP_ME(memcachedlite, get,        memc_lite_get_args,        ZEND_ACC_PUBLIC)
-	PHP_ME(memcachedlite, exist,      memc_lite_exist_args,      ZEND_ACC_PUBLIC)
-	PHP_ME(memcachedlite, touch,      memc_lite_touch_args,      ZEND_ACC_PUBLIC)
-	PHP_ME(memcachedlite, delete,     memc_lite_delete_args,     ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, add_server,  memc_lite_add_server_args,  ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, get_servers, memc_lite_get_servers_args, ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, set,         memc_lite_set_args,         ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, add,         memc_lite_add_args,         ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, get,         memc_lite_get_args,         ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, exist,       memc_lite_exist_args,       ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, touch,       memc_lite_touch_args,       ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, delete,      memc_lite_delete_args,      ZEND_ACC_PUBLIC)
 
-	PHP_ME(memcachedlite, increment,  memc_lite_increment_args,  ZEND_ACC_PUBLIC)
-	PHP_ME(memcachedlite, decrement,  memc_lite_decrement_args,  ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, increment,   memc_lite_increment_args,  ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, decrement,   memc_lite_decrement_args,  ZEND_ACC_PUBLIC)
 
 	PHP_ME(memcachedlite, set_binary_protocol,  memc_lite_set_binary_protocol_args,  ZEND_ACC_PUBLIC)
 	PHP_ME(memcachedlite, get_binary_protocol,  memc_lite_get_binary_protocol_args,  ZEND_ACC_PUBLIC)
+
+	PHP_ME(memcachedlite, set_distribution,  memc_lite_set_distribution_args,  ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, get_distribution,  memc_lite_get_distribution_args,  ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
 
@@ -754,7 +884,10 @@ zend_object_value php_memc_lite_object_new(zend_class_entry *class_type TSRMLS_D
 		zend_error (E_ERROR, "Failed to allocate memory for struct memcached_st");
 	}
 
-	//memcached_behavior_set (intern->memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL, 1);
+	intern->distribution = PHP_MEMC_LITE_DISTRIBUTION_MODULO;
+
+	memcached_behavior_set (intern->memc, MEMCACHED_BEHAVIOR_DISTRIBUTION, MEMCACHED_DISTRIBUTION_MODULA);
+	memcached_behavior_set (intern->memc, MEMCACHED_BEHAVIOR_HASH, MEMCACHED_HASH_DEFAULT);
 
 	zend_object_std_init(&intern->zo, class_type TSRMLS_CC);
 	object_properties_init(&intern->zo, class_type);
