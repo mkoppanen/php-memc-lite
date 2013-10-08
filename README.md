@@ -32,7 +32,7 @@ This extension uses bundled FastLZ. The license is available at fastlz/LICENSE
 FAQ
 ---
 
-Disclaimer: no one actually asked these questions. I made them up with hand puppets.
+Disclaimer: no one actually asked these questions. I made them up.
 
 #### Q: Can you add serializer X (igbinary, json etc) ?
 
@@ -57,9 +57,3 @@ Example:
                                               $obj->add_server ('127.0.0.1', 11211);
                                           });
     // Use $lite here
-
-
-TODO
-----
-
-- Persistent connections
