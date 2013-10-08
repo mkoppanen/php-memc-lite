@@ -418,13 +418,6 @@ char *s_uncompress_value (const char *value, size_t *value_len TSRMLS_DC)
 
 	original_size = ntohl (original_size);
 
-	/* Let's make sure that the returned value length is not disproportional.
-	   If original_size is half of the compressed size then something has gone wrong
-	*/
-	if (original_size < (*value_len * 2)) {
-		return NULL;
-	}
-
 	/* Allocate decompression buffer */
 	buffer = emalloc (original_size);
 
