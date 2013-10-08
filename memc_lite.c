@@ -603,19 +603,35 @@ void s_unmarshall_value (zval *return_value, const char *value, size_t value_len
 		char *end;
 		long l_val;
 
-		l_val = strtol (value, &end, 10);
-
-		if ((errno == ERANGE && (l_val == LONG_MAX || l_val == LONG_MIN)) ||
-		    (errno != 0 && l_val == 0)) {
-		   zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall long value", -1 TSRMLS_CC);
+		if (value_len >= MEMC_LITE_VERY_SMALL) {
+			zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall long value", -1 TSRMLS_CC);
 		} else {
-			ZVAL_LONG (return_value, l_val);
+			char buffer [MEMC_LITE_VERY_SMALL];
+
+			memcpy (buffer, value, value_len);
+			buffer [value_len] = '\0';
+
+			l_val = strtol (buffer, &end, 10);
+
+			if ((errno == ERANGE && (l_val == LONG_MAX || l_val == LONG_MIN)) ||
+			    (errno != 0 && l_val == 0)) {
+			   zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall long value", -1 TSRMLS_CC);
+			} else {
+				ZVAL_LONG (return_value, l_val);
+			}
 		}
 	}
 	else
 	if (flags & MEMC_LITE_FLAG_IS_DOUBLE) {
-		double d_val = zend_strtod (value, NULL);
-		ZVAL_DOUBLE (return_value, d_val);
+		if (value_len >= MEMC_LITE_VERY_SMALL) {
+			zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall double value", -1 TSRMLS_CC);
+		} else {
+			char buffer [MEMC_LITE_VERY_SMALL];
+
+			memcpy (buffer, value, value_len);
+			buffer [value_len] = '\0';
+			ZVAL_DOUBLE (return_value, zend_strtod (buffer, NULL));
+		}
 	}
 	else
 	if (flags & MEMC_LITE_FLAG_IS_BOOL) {
@@ -965,6 +981,7 @@ PHP_METHOD(memcachedlite, set_distribution)
 			break;
 
 			default:
+				RETURN_FALSE;
 			break;
 		}
 		intern->internal->distribution = distribution;
@@ -1137,6 +1154,7 @@ void php_memc_lite_object_free_storage(void *object TSRMLS_DC)
 
 	if (!intern->internal->is_persistent) {
 		memcached_free (intern->internal->memc);
+		pefree (intern->internal, 0);
 	}
 
 	zend_object_std_dtor(&intern->zo TSRMLS_CC);
