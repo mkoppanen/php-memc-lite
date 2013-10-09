@@ -950,7 +950,8 @@ void s_memc_lite_interval_op (INTERNAL_FUNCTION_PARAMETERS, php_memc_lite_op_t o
 		rc = memcached_decrement_with_initial (intern->internal->memc, key, key_len, offset, initial, (time_t) ttl, &new_value);
 
 	if (rc == MEMCACHED_SUCCESS) {
-		RETURN_LONG (new_value);
+		s_uint64_to_zval (return_value, new_value TSRMLS_CC);
+		return;
 	}
 	/* No exception on this, just means that key doesnt exist */
 	else

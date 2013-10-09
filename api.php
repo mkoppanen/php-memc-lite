@@ -14,8 +14,20 @@ class MemcachedLiteException extends Exception {
  */
 class MemcachedLite {
 
+    /**
+     * Default distribution method, uses modulo to select server
+     */
     const DISTRIBUTION_MODULO = 1;
+
+    /**
+     * Ketama compatible hashing with weighting
+     */
     const DISTRIBUTION_KETAMA = 2;
+
+    /**
+     * Virtual bucket distribution method.
+     * More information: http://dustin.sallings.org/2010/06/29/memcached-vbuckets.html
+     */
     const DISTRIBUTION_VIRTUAL_BUCKET = 3;
     
     /**
@@ -119,33 +131,72 @@ class MemcachedLite {
     public function delete ($key);
 
     /**
-     * Increment a key
+     * Increment a key. The overflow of the key is handled as string. Be careful if 
+     * performing arithmetics on large increment (close to PHP_INT_MAX) return values.
      *
      * @param string  $key     The key
      * @param integer $offset  (optional) The amount to increment. Default: 1
      *
-     * @return integer Returns the new value of the key
+     * @return mixed Returns the new value of the key
      */
     public function increment ($key, $offset = 1);
 
     /**
-     * Decrement a key
+     * Decrement a key. The overflow of the key is handled as string. Be careful if 
+     * performing arithmetics on large increment (close to PHP_INT_MAX) return values.
      *
      * @param string  $key    The key
      * @param integer $offset (optional) The amount to decrement. Default: 1
      *
-     * @return integer Returns the new value of the key
+     * @return mixed Returns the new value of the key
      */
     public function decrement ($key, $offset = 1);
 
-    // Setters and getters
+    /**
+     * Sets the key distribution method. Available methods are MODULO, KETAMA and VBUCKET.
+     * They are defined as class constants in this class.
+     *
+     * @param integer $type  Distribution constants
+     * @return bool
+     */
     public function set_distribution ($type);
+
+    /**
+     * Gets the key distribution method. One of MODULO, KETAMA and VBUCKET.
+     * They are defined as class constants in this class.
+     *
+     * @return integer
+     */
     public function get_distribution ();
 
+    /**
+     * Enable or disable binary protocol
+     *
+     * @param boolean $toggle  True enables binary protocol and false disables
+     * @return boolean
+     */
     public function set_binary_protocol ($toggle);
+
+    /**
+     * Whether binary protocol is enabled
+     *
+     * @return boolean
+     */
     public function get_binary_protocol ();
 
+    /**
+     * Enable or disable compression
+     *
+     * @param boolean $toggle  True enables compression and false disables
+     * @return boolean
+     */
     public function set_compression ($toggle);
+
+    /**
+     * Whether compression is enabled
+     *
+     * @return boolean
+     */
     public function get_compression ();
 
 }

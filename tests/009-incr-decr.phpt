@@ -23,12 +23,17 @@ var_dump ($new_value);
 $new_value = $memc->increment ('interval_value', 7);
 var_dump ($new_value);
 
+// Should overflow to string
+$new_value = $memc->increment ('interval_value', PHP_INT_MAX);
+var_dump ($new_value);
+
 echo "OK" . PHP_EOL;
 
 ?>
---EXPECT--
+--EXPECTF--
 bool(true)
 int(42)
 int(0)
 int(7)
+string(%d) "%d"
 OK
