@@ -24,6 +24,13 @@ Install fairly recent libmemcached and run:
 
 If tests fail, just give me a ping.
 
+Documentation
+-------------
+
+Documentation can be generated using the following command:
+
+    phpdoc -f api.php -t docs
+
 FastLZ
 ------
 
