@@ -214,6 +214,16 @@ void s_memc_lite_internal_store (const char *persistent_id, php_memc_lite_intern
 	efree (plist_key);
 }
 
+#if ZEND_MODULE_API_NO > 20060613
+#  define PHP_MEMC_LITE_ERROR_HANDLING_INIT() zend_error_handling error_handling;
+#  define PHP_MEMC_LITE_ERROR_HANDLING_THROW() zend_replace_error_handling(EH_THROW, php_memc_lite_exception_sc_entry, &error_handling TSRMLS_CC);
+#  define PHP_MEMC_LITE_ERROR_HANDLING_RESTORE() zend_restore_error_handling(&error_handling TSRMLS_CC);
+#else
+#  define PHP_MEMC_LITE_ERROR_HANDLING_INIT()
+#  define PHP_MEMC_LITE_ERROR_HANDLING_THROW() php_set_error_handling(EH_THROW, php_memc_lite_exception_sc_entry TSRMLS_CC);
+#  define PHP_MEMC_LITE_ERROR_HANDLING_RESTORE() php_set_error_handling(EH_NORMAL, NULL TSRMLS_CC);
+#endif
+
 /* {{{ proto bool MemcachedLite::__construct ([string $persistent_id = null[, callable $callable]])
     Create a new object
 */
@@ -224,12 +234,18 @@ PHP_METHOD(memcachedlite, __construct)
 	int persistent_id_len = 0;
 	zend_fcall_info fci;
 	zend_fcall_info_cache fci_cache;
-	zend_bool is_new = 0;
+	zend_bool rc, is_new = 0;
 
 	fci.size = 0;
 
-	/* TODO: throw exception on args failure */
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|s!f!", &persistent_id, &persistent_id_len, &fci, &fci_cache) == FAILURE) {
+	PHP_MEMC_LITE_ERROR_HANDLING_INIT()
+	PHP_MEMC_LITE_ERROR_HANDLING_THROW()
+
+	rc = zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|s!f!", &persistent_id, &persistent_id_len, &fci, &fci_cache);
+
+	PHP_MEMC_LITE_ERROR_HANDLING_RESTORE()
+
+	if (rc == FAILURE) {
 		return;
 	}
 
@@ -251,6 +267,9 @@ PHP_METHOD(memcachedlite, __construct)
 	}
 }
 /* }}} */
+#undef PHP_MEMC_LITE_ERROR_HANDLING_INIT
+#undef PHP_MEMC_LITE_ERROR_HANDLING_THROW
+#undef PHP_MEMC_LITE_ERROR_HANDLING_RESTORE
 
 /* {{{ proto bool MemcachedLite::add_server(string $host[, int $port = 11211[, int $weight = 1]])
     Add a new server connection
