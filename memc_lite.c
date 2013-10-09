@@ -130,7 +130,7 @@ php_memc_lite_internal_t *s_memc_lite_internal_get (const char *persistent_id, z
 
 	char *plist_key;
 	int plist_key_len;
-	zend_rsrc_list_entry le, *le_p = NULL;
+	zend_rsrc_list_entry *le_p = NULL;
 
 	*is_new = 0;
 	is_persistent = (persistent_id ? 1 : 0);
@@ -306,7 +306,7 @@ memcached_return s_server_list_to_zval (const memcached_st *ptr, const memcached
 
 	MAKE_STD_ZVAL (server);
 	array_init (server);
-	add_assoc_string (server, "host", memcached_server_name (instance), 1);
+	add_assoc_string (server, "host", (char *) memcached_server_name (instance), 1);
 	add_assoc_long (server, "port", memcached_server_port (instance));
 
 	add_next_index_zval (return_value, server);
@@ -362,7 +362,7 @@ PHP_METHOD(memcachedlite, get_server)
 	}
 
 	array_init (return_value);
-	add_assoc_string (return_value, "host", memcached_server_name (server), 1);
+	add_assoc_string (return_value, "host", (char *) memcached_server_name (server), 1);
 	add_assoc_long (return_value, "port", memcached_server_port (server));
 	return;
 }
@@ -767,9 +767,7 @@ PHP_METHOD(memcachedlite, get)
 	php_memc_lite_object *intern;
 	char *key;
 	int key_len;
-	char *value;
-	size_t value_len;
-	uint32_t flags;
+
 	memcached_return rc = MEMCACHED_SUCCESS;
 	zval *exists = NULL;
 	zval *cas = NULL;
@@ -1102,7 +1100,6 @@ PHP_METHOD(memcachedlite, get_distribution)
 PHP_METHOD(memcachedlite, set_compression)
 {
 	php_memc_lite_object *intern;
-	memcached_return rc;
 	zend_bool compression;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "b", &compression) == FAILURE) {
