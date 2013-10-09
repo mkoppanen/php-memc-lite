@@ -19,7 +19,8 @@ function run_cas_test ($memc)
 
 	// We should be able to get cas token back
 	$value = $memc->get ($key, $exists, $cas);
-	printf ("key=[%s] value=[%s] exists=[%d] cas=[%d]" . PHP_EOL, $key, $value, $exists, is_string ($cas));
+
+	printf ("key=[%s] value=[%s] exists=[%d] cas=[%d]" . PHP_EOL, $key, $value, $exists, $cas > 0 || is_string ($cas));
 	$old_cas = $cas;
 	
 	// This should not throw exception, correct cas token
@@ -27,7 +28,7 @@ function run_cas_test ($memc)
 
 	// Let's see that the value is correct
 	$value = $memc->get ($key, $exists, $cas);
-	printf ("key=[%s] value=[%s] exists=[%d] cas=[%d]" . PHP_EOL, $key, $value, $exists, is_string ($cas));
+	printf ("key=[%s] value=[%s] exists=[%d] cas=[%d]" . PHP_EOL, $key, $value, $exists, $cas > 0 || is_string ($cas));
 	
 	try {
 		// Setting this key should fail because of wrong cas
@@ -39,7 +40,7 @@ function run_cas_test ($memc)
 	// Test cas value with non-existent key
 	$key = 'this_key_should_not_exist_111';
 	$memc->get ($key, $exists, $cas);
-	printf ("key=[%s] value=[%s] exists=[%d] cas=[%d]" . PHP_EOL, $key, $value, $exists, is_string ($cas));
+	printf ("key=[%s] value=[%s] exists=[%d] cas=[%d]" . PHP_EOL, $key, $value, $exists, $cas > 0 || is_string ($cas));
 }
 
 

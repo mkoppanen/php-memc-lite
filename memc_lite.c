@@ -439,15 +439,36 @@ char *s_marshall_value (zval *orig_value, size_t *length, uint32_t *flags, zend_
 }
 
 static
-uint64_t s_zval_to_uint64 (zval *source TSRMLS_DC)
+uint64_t s_zval_to_uint64 (zval *cas TSRMLS_DC)
 {
-	uint64_t big_endian;
+	switch (Z_TYPE_P (cas)) {
+		case IS_LONG:
+			if (Z_LVAL_P (cas) < 0)
+				return 0;
 
-	if (Z_TYPE_P (source) != IS_STRING || Z_STRLEN_P (source) != sizeof (uint64_t)) {
-		return 0;
+			return (uint64_t) Z_LVAL_P (cas);
+		break;
+
+		case IS_DOUBLE:
+			if (Z_DVAL_P (cas) < 0.0)
+				return 0;
+
+			return (uint64_t) Z_DVAL_P (cas);
+		break;
+
+		case IS_STRING:
+		{
+			uint64_t val = 0;
+
+			char buffer [MEMC_LITE_VERY_SMALL];
+			sscanf (Z_STRVAL_P (cas), "%" PRIu64, &val);
+			return val;
+		}
+		break;
+
+		default:
+			return 0;
 	}
-	memcpy (&big_endian, Z_STRVAL_P (source), sizeof (uint64_t));
-	return be64toh (big_endian);
 }
 
 /* {{{ proto bool MemcachedLite::set(string $key, mixed $value[, int $ttl = 0[, string $cas = null]])
@@ -676,14 +697,17 @@ void s_unmarshall_value (zval *return_value, const char *value, size_t value_len
 static
 void s_uint64_to_zval (zval *target, uint64_t value TSRMLS_DC)
 {
-	char buffer [sizeof (uint64_t)];
-	uint64_t big_endian = htobe64 (value);
-
-	memcpy (buffer, &big_endian, sizeof (uint64_t));
-	ZVAL_STRINGL (target, buffer, sizeof (uint64_t), 1);
+	if (value >= LONG_MAX) {
+		char *buffer;
+		spprintf (&buffer, 0, "%" PRIu64, value);
+		ZVAL_STRING (target, buffer, 0);
+	}
+	else {
+		ZVAL_LONG (target, (long) value);
+	}
 }
 
-/* {{{ proto mixed MemcachedLite::get(string $key[, bool $exists = null])
+/* {{{ proto mixed MemcachedLite::get(string $key[, bool $exists = null[, mixed $cas = null]])
     Set a key to a value
 */
 PHP_METHOD(memcachedlite, get)
@@ -1055,6 +1079,7 @@ PHP_METHOD(memcachedlite, get_compression)
 	RETURN_BOOL (intern->internal->compression);
 }
 /* }}} */
+
 
 ZEND_BEGIN_ARG_INFO_EX(memc_lite_construct_args, 0, 0, 0)
 	ZEND_ARG_INFO(0, persistent_id)

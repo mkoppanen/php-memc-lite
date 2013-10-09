@@ -19,6 +19,9 @@
 #ifndef PHP_MEMC_LITE_H
 #  define PHP_MEMC_LITE_H
 
+/* Will probably move this later */
+#define __STDC_FORMAT_MACROS
+
 /* Define Extension Properties */
 #define PHP_MEMC_LITE_EXTNAME    "memc_lite"
 #define PHP_MEMC_LITE_VERSION    "@PACKAGE_VERSION@"
