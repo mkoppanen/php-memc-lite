@@ -94,7 +94,7 @@ class MemcachedLite {
      * Checks whether a key exists
      *
      * @param string  $key  The key to test
-     * 
+     *
      * @return boolean indicating if the key exists
      */
     public function exists ($key);
@@ -104,7 +104,7 @@ class MemcachedLite {
      *
      * @param string  $key  The key
      * @param integer $ttl   (optional) Time to live value for the key, in seconds. Default: 0
-     * 
+     *
      * @return boolean Returns true if the operation was successful and false if the key doesn't exist
      */
     public function touch ($key, $ttl = 0);
@@ -113,13 +113,29 @@ class MemcachedLite {
      * Deletes a key
      *
      * @param string  $key  The key to delete
-     * 
+     *
      * @return boolean indicating if the key was deleted
      */
     public function delete ($key);
-    
+
+    /**
+     * Increment a key
+     *
+     * @param string  $key     The key
+     * @param integer $offset  (optional) The amount to increment. Default: 1
+     *
+     * @return integer Returns the new value of the key
+     */
     public function increment ($key, $offset = 1);
 
+    /**
+     * Decrement a key
+     *
+     * @param string  $key    The key
+     * @param integer $offset (optional) The amount to decrement. Default: 1
+     *
+     * @return integer Returns the new value of the key
+     */
     public function decrement ($key, $offset = 1);
 
     // Setters and getters
