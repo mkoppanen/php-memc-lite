@@ -20,7 +20,9 @@
 #  define PHP_MEMC_LITE_H
 
 /* Will probably move this later */
-#define __STDC_FORMAT_MACROS
+#ifndef __STDC_FORMAT_MACROS
+#  define __STDC_FORMAT_MACROS
+#endif
 
 /* Define Extension Properties */
 #define PHP_MEMC_LITE_EXTNAME    "memc_lite"
