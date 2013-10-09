@@ -333,9 +333,38 @@ PHP_METHOD(memcachedlite, get_servers)
 
 	rc = memcached_server_cursor (intern->internal->memc, cb, (void *) return_value, 1);
 
-	if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::add_server", rc TSRMLS_CC)) {
+	if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::get_servers", rc TSRMLS_CC)) {
 		return;
 	}
+}
+/* }}} */
+
+/* {{{ proto array MemcachedLite::get_server ($key)
+    Get the server entry where the key hashes to
+*/
+PHP_METHOD(memcachedlite, get_server)
+{
+	memcached_return rc = MEMCACHED_SUCCESS;
+	php_memc_lite_object *intern;
+	const memcached_instance_st *server;
+	char *key;
+	int key_len;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &key, &key_len) == FAILURE) {
+		return;
+	}
+
+	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
+	server = memcached_server_by_key (intern->internal->memc, key, key_len, &rc);
+
+	if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::get_server", rc TSRMLS_CC)) {
+		return;
+	}
+
+	array_init (return_value);
+	add_assoc_string (return_value, "host", memcached_server_name (server), 1);
+	add_assoc_long (return_value, "port", memcached_server_port (server));
+	return;
 }
 /* }}} */
 
@@ -1117,6 +1146,10 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(memc_lite_get_servers_args, 0, 0, 1)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(memc_lite_get_server_args, 0, 0, 1)
+	ZEND_ARG_INFO(0, key)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(memc_lite_set_args, 0, 0, 2)
 	ZEND_ARG_INFO(0, key)
 	ZEND_ARG_INFO(0, value)
@@ -1184,6 +1217,7 @@ zend_function_entry php_memc_lite_class_methods[] =
 	PHP_ME(memcachedlite, __construct, memc_lite_construct_args,   ZEND_ACC_PUBLIC)
 	PHP_ME(memcachedlite, add_server,  memc_lite_add_server_args,  ZEND_ACC_PUBLIC)
 	PHP_ME(memcachedlite, get_servers, memc_lite_get_servers_args, ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, get_server,  memc_lite_get_server_args,  ZEND_ACC_PUBLIC)
 	PHP_ME(memcachedlite, set,         memc_lite_set_args,         ZEND_ACC_PUBLIC)
 	PHP_ME(memcachedlite, add,         memc_lite_add_args,         ZEND_ACC_PUBLIC)
 	PHP_ME(memcachedlite, get,         memc_lite_get_args,         ZEND_ACC_PUBLIC)
@@ -1191,8 +1225,8 @@ zend_function_entry php_memc_lite_class_methods[] =
 	PHP_ME(memcachedlite, touch,       memc_lite_touch_args,       ZEND_ACC_PUBLIC)
 	PHP_ME(memcachedlite, delete,      memc_lite_delete_args,      ZEND_ACC_PUBLIC)
 
-	PHP_ME(memcachedlite, increment,   memc_lite_increment_args,  ZEND_ACC_PUBLIC)
-	PHP_ME(memcachedlite, decrement,   memc_lite_decrement_args,  ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, increment,   memc_lite_increment_args,   ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, decrement,   memc_lite_decrement_args,   ZEND_ACC_PUBLIC)
 
 	PHP_ME(memcachedlite, set_binary_protocol,  memc_lite_set_binary_protocol_args,  ZEND_ACC_PUBLIC)
 	PHP_ME(memcachedlite, get_binary_protocol,  memc_lite_get_binary_protocol_args,  ZEND_ACC_PUBLIC)

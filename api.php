@@ -12,6 +12,9 @@ class MemcachedLite {
     
     public function get_servers ();
 
+    // Returns the server where the key hashes to
+    public function get_server ($key);
+
     public function set ($key, $value, $ttl = 0, $cas = null);
 
     public function add ($key, $value, $ttl = 0);

@@ -34,10 +34,12 @@ FAQ
 
 Disclaimer: no one actually asked these questions. I made them up.
 
+
 #### Q: Can you add serializer X (igbinary, json etc) ?
 
 No. It adds unnecessary complexity. If you want different serializer, just serialise
-to string before saving. The extension stores strings as is.
+to string before saving. The extension doesn't modify strings while saving or fetching them.
+
 
 #### Q: How do persistent connections work?
 
@@ -58,6 +60,7 @@ Example:
                                           });
     // Use $lite here
 
+
 #### Q: How do you handle returning uint64_t CAS tokens to PHP?
 
 CAS token overflow is handled as a numeric string. Up until LONG_MAX the extension returns
@@ -65,4 +68,5 @@ integers, but larger CAS tokens get converted to numeric strings.
 
 The user of the library should be careful not to do arithmetics with CAS tokens without
 checking the type first or alternatively using a library that handles arbitrary length
-integers.
+integers
+
