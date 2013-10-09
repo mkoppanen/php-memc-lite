@@ -57,3 +57,12 @@ Example:
                                               $obj->add_server ('127.0.0.1', 11211);
                                           });
     // Use $lite here
+
+#### Q: How do you handle returning uint64_t CAS tokens to PHP?
+
+CAS token overflow is handled as a numeric string. Up until LONG_MAX the extension returns
+integers, but larger CAS tokens get converted to numeric strings.
+
+The user of the library should be careful not to do arithmetics with CAS tokens without
+checking the type first or alternatively using a library that handles arbitrary length
+integers.
