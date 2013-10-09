@@ -24,7 +24,7 @@ function run_cas_test ($memc)
 	$old_cas = $cas;
 	
 	// This should not throw exception, correct cas token
-	$memc->set ($key, 'hi again', 10, $cas);
+	$memc->set ($key, 'hi again', 10, (string) $cas);
 
 	// Let's see that the value is correct
 	$value = $memc->get ($key, $exists, $cas);

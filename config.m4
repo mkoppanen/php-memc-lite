@@ -36,6 +36,11 @@ if test "$PHP_MEMC_LITE" != "no"; then
     AC_MSG_ERROR(Unable to find libmemcached installation)
   fi
 
+  PHP_CHECK_FUNC(strtoull)
+  if test "$ac_cv_func_strtoull" != "yes"; then
+    AC_MSG_ERROR(strtoull not found)
+  fi
+
   PHP_ADD_BUILD_DIR($ext_builddir/fastlz, 1)
 
   PHP_SUBST(MEMC_LITE_SHARED_LIBADD)

@@ -39,6 +39,9 @@
 #  define be64toh(x) OSSwapBigToHostInt64(x)
 #endif
 
+#include <stdint.h>
+#include <stdlib.h>
+
 static
 	zend_class_entry *php_memc_lite_sc_entry,
 					 *php_memc_lite_exception_sc_entry;
@@ -458,15 +461,18 @@ uint64_t s_zval_to_uint64 (zval *cas TSRMLS_DC)
 
 		case IS_STRING:
 		{
-			uint64_t val = 0;
-			sscanf (Z_STRVAL_P (cas), "%" PRIu64, &val);
+			char *end;
+			uint64_t val = (uint64_t) strtoull (Z_STRVAL_P (cas), &end, 0);
+
+			if ((errno == ERANGE && val == UINT64_MAX) || (errno != 0 && val == 0)) {
+				zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall cas token", -1 TSRMLS_CC);
+				return 0;
+			}
 			return val;
 		}
 		break;
-
-		default:
-			return 0;
 	}
+	return 0;
 }
 
 /* {{{ proto bool MemcachedLite::set(string $key, mixed $value[, int $ttl = 0[, string $cas = null]])
