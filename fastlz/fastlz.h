@@ -39,6 +39,13 @@
 extern "C" {
 #endif
 
+#ifndef FASTLZ_FUNCTION_PREFIX
+#  define FASTLZ_FUNCTION_PREFIX
+#endif
+
+#define FASTLZ_TOKEN_PASTE(prefix, name) prefix ## name
+#define FASTLZ_FUNCTION_NAME(prefix, name) FASTLZ_TOKEN_PASTE(prefix, name)
+
 /**
   Compress a block of data in the input buffer and returns the size of 
   compressed block. The size of input buffer is specified by length. The 
@@ -53,7 +60,7 @@ extern "C" {
   The input buffer and the output buffer can not overlap.
 */
 
-int fastlz_compress(const void* input, int length, void* output);
+int FASTLZ_FUNCTION_NAME(FASTLZ_FUNCTION_PREFIX, fastlz_compress)(const void* input, int length, void* output);
 
 /**
   Decompress a block of compressed data and returns the size of the 
@@ -67,7 +74,7 @@ int fastlz_compress(const void* input, int length, void* output);
   more than what is specified in maxout.
  */
 
-int fastlz_decompress(const void* input, int length, void* output, int maxout); 
+int FASTLZ_FUNCTION_NAME(FASTLZ_FUNCTION_PREFIX, fastlz_decompress)(const void* input, int length, void* output, int maxout); 
 
 /**
   Compress a block of data in the input buffer and returns the size of 
@@ -91,7 +98,7 @@ int fastlz_decompress(const void* input, int length, void* output, int maxout);
   decompressed using the function fastlz_decompress above.
 */  
 
-int fastlz_compress_level(int level, const void* input, int length, void* output);
+int FASTLZ_FUNCTION_NAME(FASTLZ_FUNCTION_PREFIX, fastlz_compress_level)(int level, const void* input, int length, void* output);
 
 #if defined (__cplusplus)
 }

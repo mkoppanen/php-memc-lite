@@ -44,6 +44,6 @@ if test "$PHP_MEMC_LITE" != "no"; then
   PHP_ADD_BUILD_DIR($ext_builddir/fastlz, 1)
 
   PHP_SUBST(MEMC_LITE_SHARED_LIBADD)
-  PHP_NEW_EXTENSION(memc_lite, memc_lite.c fastlz/fastlz.c fastlz/6pack.c, $ext_shared,,$PHP_MEMC_LITE_CFLAGS)
+  PHP_NEW_EXTENSION(memc_lite, memc_lite.c fastlz/fastlz.c, $ext_shared,,$PHP_MEMC_LITE_CFLAGS)
 fi
 

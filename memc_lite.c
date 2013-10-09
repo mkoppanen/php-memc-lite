@@ -24,6 +24,7 @@
 
 #include <libmemcached/memcached.h>
 
+#define FASTLZ_FUNCTION_PREFIX memc_lite
 #include "fastlz/fastlz.h"
 
 #if defined(__linux__)
@@ -382,7 +383,7 @@ char *s_compress_value (const char *value, size_t *value_len)
 	memcpy (buffer, &uncompressed_size, sizeof (uint32_t));
 
 	buffer += sizeof (uint32_t);
-	status  = ((*value_len = fastlz_compress (value, (*value_len), buffer)) > 0);
+	status  = ((*value_len = FASTLZ_FUNCTION_NAME(FASTLZ_FUNCTION_PREFIX, fastlz_compress) (value, (*value_len), buffer)) > 0);
 	buffer -= sizeof (uint32_t);
 
 	if (!status) {
@@ -649,7 +650,7 @@ char *s_uncompress_value (const char *value, size_t *value_len TSRMLS_DC)
 	value      += sizeof (uint32_t);
 	*value_len -= sizeof (uint32_t);
 
-	status = ((*value_len = fastlz_decompress (value, *value_len, buffer, original_size)) > 0);
+	status = ((*value_len = FASTLZ_FUNCTION_NAME(FASTLZ_FUNCTION_PREFIX, fastlz_decompress) (value, *value_len, buffer, original_size)) > 0);
 
 	if (!status) {
 		efree (buffer);

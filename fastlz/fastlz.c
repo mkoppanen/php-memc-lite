@@ -24,6 +24,8 @@
   THE SOFTWARE.
 */
 
+#include "fastlz.h"
+
 #if !defined(FASTLZ__COMPRESSOR) && !defined(FASTLZ_DECOMPRESSOR)
 
 /*
@@ -82,9 +84,9 @@ typedef unsigned short flzuint16;
 typedef unsigned int   flzuint32;
 
 /* prototypes */
-int fastlz_compress(const void* input, int length, void* output);
-int fastlz_compress_level(int level, const void* input, int length, void* output);
-int fastlz_decompress(const void* input, int length, void* output, int maxout);
+//int fastlz_compress(const void* input, int length, void* output);
+//int fastlz_compress_level(int level, const void* input, int length, void* output);
+//int fastlz_decompress(const void* input, int length, void* output, int maxout);
 
 #define MAX_COPY       32
 #define MAX_LEN       264  /* 256 + 8 */
@@ -127,7 +129,7 @@ static FASTLZ_INLINE int FASTLZ_COMPRESSOR(const void* input, int length, void* 
 static FASTLZ_INLINE int FASTLZ_DECOMPRESSOR(const void* input, int length, void* output, int maxout);
 #include "fastlz.c"
 
-int fastlz_compress(const void* input, int length, void* output)
+int FASTLZ_FUNCTION_NAME(FASTLZ_FUNCTION_PREFIX, fastlz_compress)(const void* input, int length, void* output)
 {
   /* for short block, choose fastlz1 */
   if(length < 65536)
@@ -137,7 +139,7 @@ int fastlz_compress(const void* input, int length, void* output)
   return fastlz2_compress(input, length, output);
 }
 
-int fastlz_decompress(const void* input, int length, void* output, int maxout)
+int FASTLZ_FUNCTION_NAME(FASTLZ_FUNCTION_PREFIX, fastlz_decompress)(const void* input, int length, void* output, int maxout)
 {
   /* magic identifier for compression level */
   int level = ((*(const flzuint8*)input) >> 5) + 1;
@@ -151,7 +153,7 @@ int fastlz_decompress(const void* input, int length, void* output, int maxout)
   return 0;
 }
 
-int fastlz_compress_level(int level, const void* input, int length, void* output)
+int FASTLZ_FUNCTION_NAME(FASTLZ_FUNCTION_PREFIX, fastlz_compress_level)(int level, const void* input, int length, void* output)
 {
   if(level == 1)
     return fastlz1_compress(input, length, output);
