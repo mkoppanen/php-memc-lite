@@ -509,10 +509,13 @@ uint64_t s_zval_to_uint64 (zval *cas TSRMLS_DC)
 
 		case IS_STRING:
 		{
+			uint64_t val;
 			char *end;
-			uint64_t val = (uint64_t) strtoull (Z_STRVAL_P (cas), &end, 0);
 
-			if ((errno == ERANGE && val == UINT64_MAX) || (errno != 0 && val == 0)) {
+			errno = 0;
+			val = (uint64_t) strtoull (Z_STRVAL_P (cas), &end, 0);
+
+			if (*end || (errno == ERANGE && val == UINT64_MAX) || (errno != 0 && val == 0)) {
 				zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall cas token", -1 TSRMLS_CC);
 				return 0;
 			}
@@ -675,7 +678,7 @@ void s_unmarshall_value (zval *return_value, const char *value, size_t value_len
 	}
 	else
 	if (flags & MEMC_LITE_FLAG_IS_LONG) {
-		char *end;
+		char *end = NULL;
 		long l_val;
 
 		if (value_len >= MEMC_LITE_VERY_SMALL) {
@@ -686,10 +689,11 @@ void s_unmarshall_value (zval *return_value, const char *value, size_t value_len
 			memcpy (buffer, value, value_len);
 			buffer [value_len] = '\0';
 
+			errno = 0;
 			l_val = strtol (buffer, &end, 10);
 
 			/* Let's see if there were errors */
-			if (errno != 0 && l_val == 0) {
+			if (*end || (errno != 0 && l_val == 0)) {
 				zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall long value", -1 TSRMLS_CC);
 				return;
 			}
