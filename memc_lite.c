@@ -688,9 +688,16 @@ void s_unmarshall_value (zval *return_value, const char *value, size_t value_len
 
 			l_val = strtol (buffer, &end, 10);
 
-			if ((errno == ERANGE && (l_val == LONG_MAX || l_val == LONG_MIN)) ||
-			    (errno != 0 && l_val == 0)) {
-			   zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall long value", -1 TSRMLS_CC);
+			/* Let's see if there were errors */
+			if (errno != 0 && l_val == 0) {
+				zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to unmarshall long value", -1 TSRMLS_CC);
+				return;
+			}
+
+			// No errors, let's see if it fits our range
+			if ((errno == ERANGE && (l_val == LONG_MAX || l_val == LONG_MIN))) {
+				// This is out of range for us, return as string
+				ZVAL_STRING (return_value, buffer, value_len);
 			} else {
 				ZVAL_LONG (return_value, l_val);
 			}
