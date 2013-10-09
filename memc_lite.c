@@ -141,26 +141,16 @@ php_memc_lite_internal_t *s_memc_lite_internal_get (const char *persistent_id, z
 				return (php_memc_lite_internal_t *) le_p->ptr;
 			}
 		}
+		efree (plist_key);
 	}
 
 	internal = s_memc_lite_internal_new (is_persistent TSRMLS_CC);
 	*is_new  = 1;
-
-	if (is_persistent) {
-		le.type = le_memc_lite_internal_st;
-		le.ptr  = internal;
-
-		if (zend_hash_update(&EG(persistent_list), (char *)plist_key, plist_key_len, (void *)&le, sizeof(le), NULL) == FAILURE) {
-			efree (plist_key);
-			php_error_docref(NULL TSRMLS_CC, E_ERROR, "Could not register persistent entry for the context");
-		}
-		efree (plist_key);
-	}
 	return internal;
 }
 
 static
-zend_bool s_invoke_on_new_object(zval *socket, zend_fcall_info *fci, zend_fcall_info_cache *fci_cache, const char *persistent_id TSRMLS_DC)
+zend_bool s_invoke_on_new_object(zval *this_obj, zend_fcall_info *fci, zend_fcall_info_cache *fci_cache, const char *persistent_id TSRMLS_DC)
 {
 	zval *retval_ptr, *pid_z;
 	zval **params[2];
@@ -175,7 +165,7 @@ zend_bool s_invoke_on_new_object(zval *socket, zend_fcall_info *fci, zend_fcall_
 	}
 
 	/* Call the cb */
-	params[0] = &socket;
+	params[0] = &this_obj;
 	params[1] = &pid_z;
 
 	fci->params         = params;
@@ -185,7 +175,7 @@ zend_bool s_invoke_on_new_object(zval *socket, zend_fcall_info *fci, zend_fcall_
 
 	if (zend_call_function(fci, fci_cache TSRMLS_CC) == FAILURE) {
 		if (!EG(exception)) {
-			zend_throw_exception_ex (php_memc_lite_exception_sc_entry, 0 TSRMLS_CC, "Failed to invoke 'on_new_socket' callback %s()", Z_STRVAL_P (fci->function_name));
+			zend_throw_exception_ex (php_memc_lite_exception_sc_entry, 0 TSRMLS_CC, "Failed to invoke 'on_new_obj' callback %s()", Z_STRVAL_P (fci->function_name));
 		}
 		retval = 0;
 	}
@@ -202,6 +192,25 @@ zend_bool s_invoke_on_new_object(zval *socket, zend_fcall_info *fci, zend_fcall_
 	return retval;
 }
 
+static
+void s_memc_lite_internal_store (const char *persistent_id, php_memc_lite_internal_t *internal TSRMLS_DC)
+{
+	zend_rsrc_list_entry le;
+	char *plist_key;
+	int plist_key_len;
+
+	plist_key_len = spprintf (&plist_key, 0, "memc_lite:[%s]", persistent_id);
+
+	le.type = le_memc_lite_internal_st;
+	le.ptr  = internal;
+
+	if (zend_hash_update(&EG(persistent_list), (char *)plist_key, plist_key_len, (void *)&le, sizeof(le), NULL) == FAILURE) {
+		efree (plist_key);
+		php_error_docref(NULL TSRMLS_CC, E_ERROR, "Could not register persistent entry for the context");
+	}
+	efree (plist_key);
+}
+
 /* {{{ proto bool MemcachedLite::__construct ([string $persistent_id = null[, callable $callable]])
     Create a new object
 */
@@ -216,6 +225,7 @@ PHP_METHOD(memcachedlite, __construct)
 
 	fci.size = 0;
 
+	/* TODO: throw exception on args failure */
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|s!f!", &persistent_id, &persistent_id_len, &fci, &fci_cache) == FAILURE) {
 		return;
 	}
@@ -226,10 +236,15 @@ PHP_METHOD(memcachedlite, __construct)
 	if (is_new) {
 		if (fci.size) {
 			if (!s_invoke_on_new_object (getThis(), &fci, &fci_cache, persistent_id TSRMLS_CC)) {
-				/* TODO: destroy intern->internal */
+				memcached_free (intern->internal->memc);
+				pefree (intern->internal, intern->internal->is_persistent);
+				intern->internal = NULL;
 				return;
 			}
+
 		}
+		if (intern->internal->is_persistent)
+			s_memc_lite_internal_store (persistent_id, intern->internal TSRMLS_CC);
 	}
 }
 /* }}} */
@@ -1151,7 +1166,7 @@ void php_memc_lite_object_free_storage(void *object TSRMLS_DC)
 		return;
 	}
 
-	if (!intern->internal->is_persistent) {
+	if (intern->internal && !intern->internal->is_persistent) {
 		memcached_free (intern->internal->memc);
 		pefree (intern->internal, 0);
 	}
@@ -1198,6 +1213,7 @@ ZEND_RSRC_DTOR_FUNC(s_memc_lite_internal_dtor)
 			memcached_free (internal->memc);
 
 		internal->memc = NULL;
+		pefree (internal, internal->is_persistent);
 		rsrc->ptr = NULL;
 	}
 }
