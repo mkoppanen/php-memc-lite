@@ -459,8 +459,6 @@ uint64_t s_zval_to_uint64 (zval *cas TSRMLS_DC)
 		case IS_STRING:
 		{
 			uint64_t val = 0;
-
-			char buffer [MEMC_LITE_VERY_SMALL];
 			sscanf (Z_STRVAL_P (cas), "%" PRIu64, &val);
 			return val;
 		}
