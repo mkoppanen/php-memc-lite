@@ -133,6 +133,7 @@ class MemcachedLite {
     /**
      * Increment a key. The overflow of the key is handled as string. Be careful if 
      * performing arithmetics on large increment (close to PHP_INT_MAX) return values.
+     * Note: use only with binary protocol
      *
      * @param string  $key     The key
      * @param integer $offset  (optional) The amount to increment. Default: 1
@@ -144,6 +145,7 @@ class MemcachedLite {
     /**
      * Decrement a key. The overflow of the key is handled as string. Be careful if 
      * performing arithmetics on large increment (close to PHP_INT_MAX) return values.
+     * Note: use only with binary protocol
      *
      * @param string  $key    The key
      * @param integer $offset (optional) The amount to decrement. Default: 1
