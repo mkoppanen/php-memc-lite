@@ -936,6 +936,9 @@ memcached_return s_my_memcached_touch (memcached_st *memc, const char *key, int 
 		memcached_result_free (&result);
 		return rc;
 	}
+	if (rc == MEMCACHED_END)
+		return MEMCACHED_NOTFOUND;
+
 	return rc;
 #endif
 }
