@@ -12,8 +12,12 @@ var_dump ($memc->get_distribution () == MemcachedLite::DISTRIBUTION_MODULO);
 $memc->set_distribution (MemcachedLite::DISTRIBUTION_KETAMA);
 var_dump ($memc->get_distribution () == MemcachedLite::DISTRIBUTION_KETAMA);
 
-$memc->set_distribution (MemcachedLite::DISTRIBUTION_VBUCKET);
-var_dump ($memc->get_distribution () == MemcachedLite::DISTRIBUTION_VBUCKET);
+if (defined ('MemcachedLite::DISTRIBUTION_VBUCKET')) {
+	$memc->set_distribution (MemcachedLite::DISTRIBUTION_VBUCKET);
+	var_dump ($memc->get_distribution () == MemcachedLite::DISTRIBUTION_VBUCKET);
+} else {
+	var_dump (true);
+}
 
 echo "OK" . PHP_EOL;
 

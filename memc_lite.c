@@ -43,6 +43,14 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+/* Compatibility with older versions */
+#ifdef HAVE_LIBMEMCACHED_INSTANCE_ST
+typedef const memcached_instance_st * memc_lite_instance_st;
+#else
+typedef memcached_server_instance_st memc_lite_instance_st;
+#endif
+
+
 static
 	zend_class_entry *php_memc_lite_sc_entry,
 					 *php_memc_lite_exception_sc_entry;
@@ -94,6 +102,11 @@ zend_bool s_handle_libmemcached_return (memcached_st *memc, const char *name, me
 	// No error
 	if (rc == MEMCACHED_SUCCESS)
 		return 0;
+
+	/* Is this an error..? */
+	if (rc == MEMCACHED_END) {
+		return 0;
+	}
 
 	zend_throw_exception_ex (php_memc_lite_exception_sc_entry, rc TSRMLS_CC, "Call to %s failed: %s", name, memcached_strerror (memc, rc));
 	return 1;
@@ -299,7 +312,7 @@ PHP_METHOD(memcachedlite, add_server)
 /* }}} */
 
 static
-memcached_return s_server_list_to_zval (const memcached_st *ptr, const memcached_instance_st *instance, void *context)
+memcached_return s_server_list_to_zval (const memcached_st *ptr, memc_lite_instance_st instance, void *context)
 {
 	zval *return_value, *server;
 
@@ -347,7 +360,7 @@ PHP_METHOD(memcachedlite, get_server)
 {
 	memcached_return rc = MEMCACHED_SUCCESS;
 	php_memc_lite_object *intern;
-	const memcached_instance_st *server;
+	memc_lite_instance_st server;
 	char *key;
 	int key_len;
 
@@ -569,11 +582,6 @@ PHP_METHOD(memcachedlite, set)
 	} else {
 		zend_throw_exception (php_memc_lite_exception_sc_entry, "Failed to marshall the value", -1 TSRMLS_CC);
 		return;
-	}
-
-	/* For some reason some values give MEMCACHED_END when binary protocol is used */
-	if (memcached_behavior_get (intern->internal->memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL) && rc == MEMCACHED_END) {
-		RETURN_TRUE;
 	}
 
 	if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::set", rc TSRMLS_CC)) {
@@ -846,6 +854,22 @@ PHP_METHOD(memcachedlite, get)
 }
 /* }}} */
 
+#ifndef HAVE_MEMCACHED_EXIST
+memcached_return memcached_exist (memcached_st *memc, const char *key, int key_len)
+{
+	memcached_return rc = MEMCACHED_SUCCESS;
+	uint32_t flags = 0;
+	size_t value_length = 0;
+	char *value = NULL;
+
+	value = memcached_get (memc, key, key_len, &value_length, &flags, &rc);
+	if (value) {
+		free (value);
+	}
+	return rc;
+}
+#endif
+
 /* {{{ proto bool MemcachedLite::exist(string $key)
     Checks if the key exists
 */
@@ -876,6 +900,7 @@ PHP_METHOD(memcachedlite, exist)
 	}
 }
 /* }}} */
+
 
 /* {{{ proto bool MemcachedLite::touch(string $key[, int $ttl = 0])
     Update expiration time of a key without fetching the value
@@ -1074,11 +1099,13 @@ PHP_METHOD(memcachedlite, set_distribution)
 				}
 			break;
 
+#ifdef HAVE_LIBMEMCACHED_VBUCKET
 			case PHP_MEMC_LITE_DISTRIBUTION_VBUCKET:
 				rc = memcached_behavior_set_distribution (intern->internal->memc, MEMCACHED_DISTRIBUTION_VIRTUAL_BUCKET);
 				if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::set_distribution", rc TSRMLS_CC)) {
 					return;
 				}
+#endif
 			break;
 
 			default:
@@ -1333,7 +1360,10 @@ PHP_MINIT_FUNCTION(memc_lite)
 
 	PHP_MEMC_LITE_REGISTER_CONST_LONG ("DISTRIBUTION_MODULO",  PHP_MEMC_LITE_DISTRIBUTION_MODULO);
 	PHP_MEMC_LITE_REGISTER_CONST_LONG ("DISTRIBUTION_KETAMA",  PHP_MEMC_LITE_DISTRIBUTION_KETAMA);
+
+#ifdef HAVE_LIBMEMCACHED_VBUCKET
 	PHP_MEMC_LITE_REGISTER_CONST_LONG ("DISTRIBUTION_VBUCKET", PHP_MEMC_LITE_DISTRIBUTION_VBUCKET);
+#endif
 
 #undef PHP_MEMC_LITE_REGISTER_CONST_LONG
 	return SUCCESS;

@@ -36,14 +36,54 @@ if test "$PHP_MEMC_LITE" != "no"; then
     AC_MSG_ERROR(Unable to find libmemcached installation)
   fi
 
+  ORIG_CFLAGS="$CFLAGS"
+  ORIG_LIBS="$LIBS"
+  
+  CFLAGS="$CFLAGS $PHP_MEMC_LITE_CFLAGS"
+  LIBS="$LIBS $PHP_MEMC_LITE_LIBS"
+  
+  AC_CACHE_CHECK([whether memcached_instance_st is defined], ac_cv_have_memcached_instance_st, [
+    AC_TRY_COMPILE(
+      [ #include <libmemcached/memcached.h> ],
+      [ const memcached_instance_st *instance = NULL; ],
+      [ ac_cv_have_memcached_instance_st="yes" ],
+      [ ac_cv_have_memcached_instance_st="no" ]
+    )
+  ])
+
+  if test "$ac_cv_have_memcached_instance_st" = "yes"; then
+     AC_DEFINE(HAVE_LIBMEMCACHED_INSTANCE_ST, [1], [Whether memcached_instance_st is defined])
+  fi
+
+  AC_CACHE_CHECK([whether MEMCACHED_DISTRIBUTION_VIRTUAL_BUCKET is defined], ac_cv_have_libmemcached_vbucket, [
+    AC_TRY_COMPILE(
+      [ #include <libmemcached/memcached.h> ],
+      [ MEMCACHED_DISTRIBUTION_VIRTUAL_BUCKET; ],
+      [ ac_cv_have_libmemcached_vbucket="yes" ],
+      [ ac_cv_have_libmemcached_vbucket="no" ]
+    )
+  ])
+
+  if test "$ac_cv_have_libmemcached_vbucket" = "yes"; then
+     AC_DEFINE(HAVE_LIBMEMCACHED_VBUCKET, [1], [Whether MEMCACHED_DISTRIBUTION_VIRTUAL_BUCKET is defined])
+  fi
+
+  PHP_CHECK_FUNC(memcached_exist, memcached)
+  if test "$ac_cv_func_memcached_exist" = "yes"; then
+    AC_DEFINE(HAVE_MEMCACHED_EXIST, [1], [Whether memcached_exist is defined])
+  fi
+
+  CFLAGS="$ORIG_CFLAGS"
+  LIBS="$ORIG_LIBS"
+
   PHP_CHECK_FUNC(strtoull)
   if test "$ac_cv_func_strtoull" != "yes"; then
     AC_MSG_ERROR(strtoull not found)
   fi
 
   PHP_ADD_BUILD_DIR($ext_builddir/fastlz, 1)
-
   PHP_SUBST(MEMC_LITE_SHARED_LIBADD)
+
   PHP_NEW_EXTENSION(memc_lite, memc_lite.c fastlz/fastlz.c, $ext_shared,,$PHP_MEMC_LITE_CFLAGS)
 fi
 
