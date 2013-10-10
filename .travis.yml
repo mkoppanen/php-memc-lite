@@ -1,0 +1,17 @@
+language: php
+php:
+    - 5.5
+    - 5.4
+    - 5.3
+env:
+    - NO_INTERACTION=1
+
+before_script:
+    - sudo apt-get update
+    - sudo apt-get install libmemcached-dev
+
+script:
+    - phpize
+    - ./configure
+    - make
+    - make test
