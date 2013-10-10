@@ -113,7 +113,7 @@ zend_bool s_handle_libmemcached_return (memcached_st *memc, const char *name, me
 }
 
 static
-php_memc_lite_internal_t *s_memc_lite_internal_new (zend_bool is_persistent)
+php_memc_lite_internal_t *s_memc_lite_internal_new (zend_bool is_persistent TSRMLS_DC)
 {
 	php_memc_lite_internal_t *internal;
 
@@ -484,7 +484,7 @@ char *s_marshall_value (zval *orig_value, size_t *length, uint32_t *flags, zend_
 
 	/* Whether to compress the value */
 	if (compress && *length > MEMC_LITE_VERY_SMALL) {
-		char *compressed = s_compress_value (value_ptr, length TSRMLS_CC);
+		char *compressed = s_compress_value (value_ptr, length);
 
 		if (!compressed) {
 			if (*allocated) {
@@ -569,7 +569,7 @@ PHP_METHOD(memcachedlite, set)
 		if (cas && Z_TYPE_P (cas) != IS_NULL) {
 			memcached_behavior_set(intern->internal->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 1);
 
-			rc = memcached_cas (intern->internal->memc, key, key_len, store_value, store_value_len, (time_t) ttl, flags, s_zval_to_uint64 (cas));
+			rc = memcached_cas (intern->internal->memc, key, key_len, store_value, store_value_len, (time_t) ttl, flags, s_zval_to_uint64 (cas TSRMLS_CC));
 
 			memcached_behavior_set(intern->internal->memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 0);
 		} else {
