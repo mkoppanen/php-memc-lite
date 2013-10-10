@@ -80,6 +80,19 @@ if test "$PHP_MEMC_LITE" != "no"; then
   if test "$ac_cv_have_memcached_exist" = "yes"; then
      AC_DEFINE(HAVE_MEMCACHED_EXIST, [1], [Whether memcached_exist is defined])
   fi
+  
+  AC_CACHE_CHECK([whether memcached_touch is defined], ac_cv_have_memcached_touch, [
+    AC_TRY_LINK(
+      [ #include <libmemcached/memcached.h> ],
+      [ memcached_touch (NULL, NULL, 0); ],
+      [ ac_cv_have_memcached_touch="yes" ],
+      [ ac_cv_have_memcached_touch="no" ]
+    )
+  ])
+
+  if test "$ac_cv_have_memcached_touch" = "yes"; then
+     AC_DEFINE(HAVE_MEMCACHED_TOUCH, [1], [Whether memcached_touch is defined])
+  fi
 
   CFLAGS="$ORIG_CFLAGS"
   LIBS="$ORIG_LIBS"

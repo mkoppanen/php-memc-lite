@@ -470,8 +470,7 @@ char *s_marshall_value (zval *orig_value, size_t *length, uint32_t *flags, zend_
 				memcpy (small_buffer, buffer.c, buffer.len);
 				value_ptr = small_buffer;
 			} else {
-				char *retval;
-				retval = estrdup (buffer.c);
+				char *retval = estrdup (buffer.c);
 
 				*allocated = 1;
 				value_ptr = retval;
@@ -905,6 +904,42 @@ PHP_METHOD(memcachedlite, exist)
 }
 /* }}} */
 
+static
+memcached_return s_my_memcached_touch (memcached_st *memc, const char *key, int key_len, time_t ttl)
+{
+#ifdef HAVE_MEMCACHED_TOUCH
+	return memcached_touch (memc, key, key_len, ttl);
+#else
+	memcached_result_st result;
+	memcached_return rc;
+	const char const *keys [1] = { key };
+	size_t keys_len [1] = { key_len };
+
+	memcached_behavior_set (memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 1);
+	rc = memcached_mget (memc, keys, keys_len, 1);
+	memcached_behavior_set (memc, MEMCACHED_BEHAVIOR_SUPPORT_CAS, 0);
+
+	if (rc != MEMCACHED_SUCCESS)
+		return rc;
+
+	rc = MEMCACHED_NOTFOUND;
+	memcached_result_create (memc, &result);
+
+	if (memcached_fetch_result (memc, &result, &rc) != NULL) {
+		rc = memcached_cas (memc, key, key_len,
+				memcached_result_value (&result),
+				memcached_result_length (&result),
+				ttl,
+				memcached_result_flags (&result),
+				memcached_result_cas (&result));
+
+		memcached_result_free (&result);
+		return rc;
+	}
+	return rc;
+#endif
+}
+
 
 /* {{{ proto bool MemcachedLite::touch(string $key[, int $ttl = 0])
     Update expiration time of a key without fetching the value
@@ -922,7 +957,7 @@ PHP_METHOD(memcachedlite, touch)
 	}
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
-	rc = memcached_touch (intern->internal->memc, key, key_len, (time_t) ttl);
+	rc = s_my_memcached_touch (intern->internal->memc, key, key_len, (time_t) ttl);
 
 	if (rc == MEMCACHED_SUCCESS) {
 		RETURN_TRUE;
