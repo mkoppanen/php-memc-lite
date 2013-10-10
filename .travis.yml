@@ -11,6 +11,8 @@ before_script:
     - sudo apt-get install valgrind
     - bzr branch lp:libmemcached/1.0 libmemcached-1.0
     - cd libmemcached-1.0
+    - echo "" > libtest/include.am
+    - echo "" > man/include.am
     - autoreconf -ifv
     - ./configure --prefix="${HOME}/libmemcached-lp"
     - make
