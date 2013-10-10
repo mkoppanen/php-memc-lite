@@ -859,7 +859,7 @@ static
 memcached_return s_my_memcached_exist (memcached_st *memc, const char *key, int key_len)
 {
 #ifdef HAVE_MEMCACHED_EXIST
-	return memcached_exist (intern->internal->memc, key, key_len);
+	return memcached_exist (memc, key, key_len);
 #else
 	memcached_return rc = MEMCACHED_SUCCESS;
 	uint32_t flags = 0;
