@@ -15,7 +15,7 @@ before_script:
     - wget "https://launchpad.net/libmemcached/1.0/${LIBMEMCACHED_VERSION}/+download/libmemcached-${LIBMEMCACHED_VERSION}.tar.gz"
     - tar xvfz libmemcached-${LIBMEMCACHED_VERSION}.tar.gz
     - cd libmemcached-${LIBMEMCACHED_VERSION}
-    - ./configure --prefix="${HOME}/libmemcached-${LIBMEMCACHED_VERSION}"
+    - ./configure --prefix="${HOME}/libmemcached-${LIBMEMCACHED_VERSION}" LDFLAGS="-lpthread"
     - make
     - make install
     - cd ..
@@ -23,7 +23,7 @@ before_script:
 
 script:
     - phpize
-    - ./configure --with-memc-lite="${HOME}/libmemcached-${LIBMEMCACHED_VERSION}"
+    - ./configure --with-memc-lite="${HOME}/libmemcached-${LIBMEMCACHED_VERSION}" LDFLAGS="-lpthread"
     - cat config.log
     - make
     - export NO_INTERACTION=1
