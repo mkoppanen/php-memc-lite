@@ -9,11 +9,15 @@ env:
 before_script:
     - sudo apt-get update
     - sudo apt-get install valgrind
-    - sudo apt-cache show libmemcached-dev
+    - bzr branch lp:libmemcached/1.0 libmemcached-1.0
+    - cd libmemcached-1.0
+    - autoreconf -ifv
+    - ./configure --prefix="${HOME}/libmemcached-lp"
+
 
 script:
     - phpize
-    - ./configure CFLAGS='-isystem /usr'
+    - ./configure --with-memc-lite="${HOME}/libmemcached-lp"
     - make
     - export REPORT_EXIT_STATUS=1
     - export TEST_PHP_EXECUTABLE=`which php`
