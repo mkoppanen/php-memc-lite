@@ -854,9 +854,13 @@ PHP_METHOD(memcachedlite, get)
 }
 /* }}} */
 
-#ifndef HAVE_MEMCACHED_EXIST
-memcached_return memcached_exist (memcached_st *memc, const char *key, int key_len)
+
+static
+memcached_return s_my_memcached_exist (memcached_st *memc, const char *key, int key_len)
 {
+#ifdef HAVE_MEMCACHED_EXIST
+	return memcached_exist (intern->internal->memc, key, key_len);
+#else
 	memcached_return rc = MEMCACHED_SUCCESS;
 	uint32_t flags = 0;
 	size_t value_length = 0;
@@ -867,8 +871,9 @@ memcached_return memcached_exist (memcached_st *memc, const char *key, int key_l
 		free (value);
 	}
 	return rc;
-}
 #endif
+}
+
 
 /* {{{ proto bool MemcachedLite::exist(string $key)
     Checks if the key exists
@@ -885,7 +890,7 @@ PHP_METHOD(memcachedlite, exist)
 	}
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
-	rc = memcached_exist (intern->internal->memc, key, key_len);
+	rc = s_my_memcached_exist (intern->internal->memc, key, key_len);
 
 	if (rc == MEMCACHED_SUCCESS) {
 		RETURN_TRUE;

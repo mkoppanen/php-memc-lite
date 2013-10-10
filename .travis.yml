@@ -23,7 +23,7 @@ before_script:
 
 script:
     - phpize
-    - ./configure --with-memc-lite="${HOME}/libmemcached-${LIBMEMCACHED_VERSION}" LDFLAGS="-lpthread"
+    - ./configure --with-memc-lite="${HOME}/libmemcached-${LIBMEMCACHED_VERSION}"
     - cat config.log
     - make
     - export NO_INTERACTION=1
