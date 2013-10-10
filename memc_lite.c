@@ -1090,6 +1090,7 @@ PHP_METHOD(memcachedlite, set_distribution)
 				if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::set_distribution", rc TSRMLS_CC)) {
 					return;
 				}
+				intern->internal->distribution = distribution;
 			break;
 
 			case PHP_MEMC_LITE_DISTRIBUTION_KETAMA:
@@ -1097,6 +1098,7 @@ PHP_METHOD(memcachedlite, set_distribution)
 				if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::set_distribution", rc TSRMLS_CC)) {
 					return;
 				}
+				intern->internal->distribution = distribution;
 			break;
 
 #ifdef HAVE_LIBMEMCACHED_VBUCKET
@@ -1105,6 +1107,7 @@ PHP_METHOD(memcachedlite, set_distribution)
 				if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::set_distribution", rc TSRMLS_CC)) {
 					return;
 				}
+				intern->internal->distribution = distribution;
 #endif
 			break;
 
@@ -1112,7 +1115,6 @@ PHP_METHOD(memcachedlite, set_distribution)
 				RETURN_FALSE;
 			break;
 		}
-		intern->internal->distribution = distribution;
 	}
 	RETURN_TRUE;
 }
