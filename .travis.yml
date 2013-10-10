@@ -13,6 +13,9 @@ before_script:
     - cd libmemcached-1.0
     - autoreconf -ifv
     - ./configure --prefix="${HOME}/libmemcached-lp"
+    - make
+    - make install
+    - cd ..
 
 
 script:
