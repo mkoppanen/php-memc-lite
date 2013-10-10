@@ -69,7 +69,7 @@ if test "$PHP_MEMC_LITE" != "no"; then
   fi
 
   AC_CACHE_CHECK([whether memcached_exist is defined], ac_cv_have_memcached_exist, [
-    AC_TRY_COMPILE(
+    AC_TRY_LINK(
       [ #include <libmemcached/memcached.h> ],
       [ memcached_exist (NULL, NULL, 0); ],
       [ ac_cv_have_memcached_exist="yes" ],

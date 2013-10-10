@@ -5,10 +5,15 @@ php:
     - 5.3
 env:
     - NO_INTERACTION=1
+    - REPORT_EXIT_STATUS=1
+
+before_script:
+    - sudo apt-get update
+    - sudo apt-get install valgrind
 
 script:
     - phpize
     - ./configure
     - make
-    - make test
-    - cat tests/*.out
+    - TEST_PHP_EXECUTABLE=`which php` php run-tests.php -m ./tests/*.phpt
+
