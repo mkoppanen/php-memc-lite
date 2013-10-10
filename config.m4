@@ -68,9 +68,17 @@ if test "$PHP_MEMC_LITE" != "no"; then
      AC_DEFINE(HAVE_LIBMEMCACHED_VBUCKET, [1], [Whether MEMCACHED_DISTRIBUTION_VIRTUAL_BUCKET is defined])
   fi
 
-  PHP_CHECK_FUNC(memcached_exist, memcached)
-  if test "$ac_cv_func_memcached_exist" = "yes"; then
-    AC_DEFINE(HAVE_MEMCACHED_EXIST, [1], [Whether memcached_exist is defined])
+  AC_CACHE_CHECK([whether memcached_exist is defined], ac_cv_have_memcached_exist, [
+    AC_TRY_COMPILE(
+      [ #include <libmemcached/memcached.h> ],
+      [ memcached_exist (NULL, NULL, 0); ],
+      [ ac_cv_have_memcached_exist="yes" ],
+      [ ac_cv_have_memcached_exist="no" ]
+    )
+  ])
+
+  if test "$ac_cv_have_memcached_exist" = "yes"; then
+     AC_DEFINE(HAVE_MEMCACHED_EXIST, [1], [Whether memcached_exist is defined])
   fi
 
   CFLAGS="$ORIG_CFLAGS"
