@@ -16,9 +16,9 @@ if test "$PHP_MEMC_LITE" != "no"; then
     export PKG_CONFIG_PATH="$PHP_MEMC_LITE:$PHP_MEMC_LITE/lib/pkgconfig"
   else
     if test "x${PKG_CONFIG_PATH}" != "x"; then
-      export PKG_CONFIG_PATH="${PKG_CONFIG_PATH}:/usr/lib/pkgconfig:/usr/local/lib/pkgconfig:/opt/lib/pkgconfig:/opt/local/lib/pkgconfig"
+      export PKG_CONFIG_PATH="${PKG_CONFIG_PATH}:/usr/local/lib/pkgconfig:/usr/lib/pkgconfig:/opt/lib/pkgconfig:/opt/local/lib/pkgconfig"
     else
-      export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/local/lib/pkgconfig:/opt/lib/pkgconfig:/opt/local/lib/pkgconfig"
+      export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:/usr/lib/pkgconfig:/opt/lib/pkgconfig:/opt/local/lib/pkgconfig"
     fi
   fi
 
