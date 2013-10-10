@@ -1108,9 +1108,8 @@ PHP_METHOD(memcachedlite, set_distribution)
 					return;
 				}
 				intern->internal->distribution = distribution;
-#endif
 			break;
-
+#endif
 			default:
 				RETURN_FALSE;
 			break;
