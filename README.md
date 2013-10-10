@@ -24,6 +24,8 @@ Install fairly recent libmemcached and run:
 
 If tests fail, just give me a ping.
 
+[![Build Status](https://travis-ci.org/mkoppanen/php-memc-lite.png?branch=master)](https://travis-ci.org/mkoppanen/php-memc-lite)
+
 Documentation
 -------------
 
