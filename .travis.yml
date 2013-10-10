@@ -24,6 +24,7 @@ before_script:
 script:
     - phpize
     - ./configure --with-memc-lite="${HOME}/libmemcached-${LIBMEMCACHED_VERSION}"
+    - cat config.log
     - make
     - export NO_INTERACTION=1
     - export REPORT_EXIT_STATUS=1
