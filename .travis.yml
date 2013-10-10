@@ -13,7 +13,7 @@ before_script:
 
 script:
     - phpize
-    - ./configure CFLAGS='-I/usr'
+    - ./configure CFLAGS='-isystem /usr'
     - make
     - export REPORT_EXIT_STATUS=1
     - export TEST_PHP_EXECUTABLE=`which php`
