@@ -6,13 +6,9 @@ php:
 env:
     - NO_INTERACTION=1
 
-before_script:
-    - sudo apt-get update
-    - sudo apt-get install libmemcached-dev
-
 script:
     - phpize
     - ./configure
-    - cat config.log
     - make
     - make test
+    - cat tests/*.out
