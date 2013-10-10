@@ -468,16 +468,15 @@ char *s_marshall_value (zval *orig_value, size_t *length, uint32_t *flags, zend_
 			// If this is a small value, just return using existing buffer
 			if (buffer.len < MEMC_LITE_VERY_SMALL) {
 				memcpy (small_buffer, buffer.c, buffer.len);
-				smart_str_free (&buffer);
 				value_ptr = small_buffer;
 			} else {
 				char *retval;
-				retval  = estrdup (buffer.c);
-				smart_str_free (&buffer);
+				retval = estrdup (buffer.c);
 
 				*allocated = 1;
 				value_ptr = retval;
 			}
+			smart_str_free (&buffer);
 		}
 		break;
 	}
