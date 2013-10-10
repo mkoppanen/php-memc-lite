@@ -38,6 +38,7 @@
 
 #include "php.h"
 
+
 extern zend_module_entry memc_lite_module_entry;
 #define phpext_memc_lite_ptr &memc_lite_module_entry
 
