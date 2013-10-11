@@ -15,6 +15,12 @@ class MemcachedLiteException extends Exception {
 class MemcachedLite {
 
     /**
+     * The value is 1 if sasl is supported and 0 if not
+     *
+     */
+    const HAVE_SASL = 0;
+
+    /**
      * Default distribution method, uses modulo to select server
      */
     const DISTRIBUTION_MODULO = 1;
