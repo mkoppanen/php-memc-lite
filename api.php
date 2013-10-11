@@ -203,4 +203,14 @@ class MemcachedLite {
      */
     public function get_compression ();
 
+    /**
+     *
+     */
+    public function set_sasl_credentials ($username, $password);
+
+    /**
+     *
+     */
+    public function get_sasl_credentials ();
+
 }

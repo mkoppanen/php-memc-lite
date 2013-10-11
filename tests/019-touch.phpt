@@ -7,7 +7,7 @@ Test touch
 
 require __DIR__ . '/test_driver.inc';
 
-function run_expiry_test ($memc)
+function run_touch_test ($memc)
 {
 	$memc->set ('expires', 'hi', 1);
 	$memc->touch ('expires', 10);
@@ -17,8 +17,8 @@ function run_expiry_test ($memc)
 	var_dump ($memc->touch (uniqid ('this_does_not_exist_')));
 }
 
-run_memc_lite_test (true, 'run_expiry_test');
-run_memc_lite_test (false, 'run_expiry_test');
+run_memc_lite_test (true, 'run_touch_test');
+run_memc_lite_test (false, 'run_touch_test');
 
 echo "OK" . PHP_EOL;
 

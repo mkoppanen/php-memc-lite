@@ -69,11 +69,17 @@ typedef enum _php_memc_lite_distribution_t {
 	PHP_MEMC_LITE_DISTRIBUTION_MAX
 } php_memc_lite_distribution_t;
 
+typedef struct _php_memc_sasl_credentials_t {
+	char *username;
+	char *password;
+} php_memc_sasl_credentials_t;
+
 typedef struct _php_memc_lite_internal_t {
 	memcached_st *memc;
 	zend_bool is_persistent;
 	php_memc_lite_distribution_t distribution;
 	zend_bool compression;
+	php_memc_sasl_credentials_t sasl_credentials;
 } php_memc_lite_internal_t;
 
 typedef struct _php_memc_lite_object  {
@@ -131,6 +137,9 @@ php_memc_lite_internal_t *s_memc_lite_internal_new (zend_bool is_persistent TSRM
 
 	memcached_behavior_set (internal->memc, MEMCACHED_BEHAVIOR_DISTRIBUTION, MEMCACHED_DISTRIBUTION_MODULA);
 	memcached_behavior_set (internal->memc, MEMCACHED_BEHAVIOR_HASH, MEMCACHED_HASH_DEFAULT);
+
+	internal->sasl_credentials.username = NULL;
+	internal->sasl_credentials.password = NULL;
 
 	internal->is_persistent = is_persistent;
 	return internal;
@@ -1212,6 +1221,79 @@ PHP_METHOD(memcachedlite, get_compression)
 }
 /* }}} */
 
+#ifdef HAVE_MEMC_LITE_SASL
+/* {{{ proto bool MemcachedLite::set_sasl_credentials(string $username, string $password)
+    Set SASL credentials
+*/
+PHP_METHOD(memcachedlite, set_sasl_credentials)
+{
+	memcached_return rc;
+	php_memc_lite_object *intern;
+	char *username, *password;
+	int username_len, password_len;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ss", &username, &username_len, &password, &password_len) == FAILURE) {
+		return;
+	}
+
+	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
+
+	// Have previous credentials
+	if (intern->internal->sasl_credentials.username && intern->internal->sasl_credentials.password) {
+		pefree (intern->internal->sasl_credentials.username, intern->internal->is_persistent);
+		pefree (intern->internal->sasl_credentials.password, intern->internal->is_persistent);
+
+		intern->internal->sasl_credentials.username = NULL;
+		intern->internal->sasl_credentials.password = NULL;
+
+		memcached_destroy_sasl_auth_data (intern->internal->memc);
+	}
+
+	if (username_len > 0 && password_len > 0) {
+		if (!memcached_behavior_get (intern->internal->memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL)) {
+			rc = memcached_behavior_set(intern->internal->memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL, 1);
+
+			if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::set_sasl_credentials", rc TSRMLS_CC)) {
+				return;
+			}
+		}
+		intern->internal->sasl_credentials.username = pestrdup (username, intern->internal->is_persistent);
+		intern->internal->sasl_credentials.password = pestrdup (password, intern->internal->is_persistent);
+
+		rc = memcached_set_sasl_auth_data (intern->internal->memc, username, password);
+
+		if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::set_sasl_credentials", rc TSRMLS_CC)) {
+			return;
+		}
+	}
+	RETURN_TRUE;
+}
+
+/* }}} */
+
+/* {{{ proto array MemcachedLite::get_sasl_credentials()
+    Get SASL credentials
+*/
+PHP_METHOD(memcachedlite, get_sasl_credentials)
+{
+	php_memc_lite_object *intern;
+
+	if (zend_parse_parameters_none() == FAILURE) {
+		return;
+	}
+
+	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
+
+	if (intern->internal->sasl_credentials.username && intern->internal->sasl_credentials.password) {
+		array_init (return_value);
+		add_assoc_string (return_value, "username", intern->internal->sasl_credentials.username, 1);
+		add_assoc_string (return_value, "password", intern->internal->sasl_credentials.password, 1);
+		return;
+	}
+	RETURN_FALSE;
+}
+/* }}} */
+#endif
 
 ZEND_BEGIN_ARG_INFO_EX(memc_lite_construct_args, 0, 0, 0)
 	ZEND_ARG_INFO(0, persistent_id)
@@ -1291,6 +1373,16 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(memc_lite_get_compression_args, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
+#ifdef HAVE_MEMC_LITE_SASL
+ZEND_BEGIN_ARG_INFO_EX(memc_lite_set_sasl_credentials, 0, 0, 2)
+	ZEND_ARG_INFO(0, username)
+	ZEND_ARG_INFO(0, password)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(memc_lite_get_sasl_credentials, 0, 0, 0)
+ZEND_END_ARG_INFO()
+#endif
+
 static
 zend_function_entry php_memc_lite_class_methods[] =
 {
@@ -1311,11 +1403,15 @@ zend_function_entry php_memc_lite_class_methods[] =
 	PHP_ME(memcachedlite, set_binary_protocol,  memc_lite_set_binary_protocol_args,  ZEND_ACC_PUBLIC)
 	PHP_ME(memcachedlite, get_binary_protocol,  memc_lite_get_binary_protocol_args,  ZEND_ACC_PUBLIC)
 
-	PHP_ME(memcachedlite, set_distribution,  memc_lite_set_distribution_args,  ZEND_ACC_PUBLIC)
-	PHP_ME(memcachedlite, get_distribution,  memc_lite_get_distribution_args,  ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, set_distribution,     memc_lite_set_distribution_args,     ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, get_distribution,     memc_lite_get_distribution_args,     ZEND_ACC_PUBLIC)
 
-	PHP_ME(memcachedlite, set_compression,  memc_lite_set_compression_args,  ZEND_ACC_PUBLIC)
-	PHP_ME(memcachedlite, get_compression,  memc_lite_get_compression_args,  ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, set_compression,      memc_lite_set_compression_args,      ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, get_compression,      memc_lite_get_compression_args,      ZEND_ACC_PUBLIC)
+#ifdef HAVE_MEMC_LITE_SASL
+	PHP_ME(memcachedlite, set_sasl_credentials, memc_lite_set_sasl_credentials,      ZEND_ACC_PUBLIC)
+	PHP_ME(memcachedlite, get_sasl_credentials, memc_lite_get_sasl_credentials,      ZEND_ACC_PUBLIC)
+#endif
 	{ NULL, NULL, NULL }
 };
 
@@ -1329,6 +1425,17 @@ void php_memc_lite_object_free_storage(void *object TSRMLS_DC)
 	}
 
 	if (intern->internal && !intern->internal->is_persistent) {
+#ifdef HAVE_MEMC_LITE_SASL
+	if (intern->internal->sasl_credentials.username && intern->internal->sasl_credentials.password) {
+		pefree (intern->internal->sasl_credentials.username, intern->internal->is_persistent);
+		pefree (intern->internal->sasl_credentials.password, intern->internal->is_persistent);
+
+		intern->internal->sasl_credentials.username = NULL;
+		intern->internal->sasl_credentials.password = NULL;
+
+		memcached_destroy_sasl_auth_data (intern->internal->memc);
+	}
+#endif
 		memcached_free (intern->internal->memc);
 		pefree (intern->internal, 0);
 	}
@@ -1371,6 +1478,17 @@ ZEND_RSRC_DTOR_FUNC(s_memc_lite_internal_dtor)
 	if (rsrc->ptr) {
 		php_memc_lite_internal_t *internal = (php_memc_lite_internal_t *) rsrc->ptr;
 
+#ifdef HAVE_MEMC_LITE_SASL
+		if (internal->sasl_credentials.username && internal->sasl_credentials.password) {
+			pefree (internal->sasl_credentials.username, internal->is_persistent);
+			pefree (internal->sasl_credentials.password, internal->is_persistent);
+
+			internal->sasl_credentials.username = NULL;
+			internal->sasl_credentials.password = NULL;
+
+			memcached_destroy_sasl_auth_data (internal->memc);
+		}
+#endif
 		if (internal->memc)
 			memcached_free (internal->memc);
 
@@ -1383,6 +1501,11 @@ ZEND_RSRC_DTOR_FUNC(s_memc_lite_internal_dtor)
 PHP_MINIT_FUNCTION(memc_lite)
 {
 	zend_class_entry ce;
+#ifdef HAVE_MEMC_LITE_SASL
+	if (sasl_client_init (NULL) != SASL_OK) {
+		zend_error (E_ERROR, "Failed to initialize SASL client");
+	}
+#endif
 	memcpy (&memc_lite_object_handlers, zend_get_std_object_handlers (), sizeof (zend_object_handlers));
 
 	/* Register destructors for persistent connections */

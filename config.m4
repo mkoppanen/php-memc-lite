@@ -1,7 +1,9 @@
 
 PHP_ARG_WITH(memc-lite, whether to enable memc-lite support,
-[  --with-memc-lite=[PATH]         Enable memc-lite support])
+[  --with-memc-lite=[PATH]   Enable memc-lite support])
 
+PHP_ARG_ENABLE(memc-lite-sasl, whether to enable memc-lite SASL support,
+[  --enable-memc-lite-sasl         Enable memc-lite SASL support (default: disabled)], [no], [no])
 
 if test "$PHP_MEMC_LITE" != "no"; then
 
@@ -92,6 +94,14 @@ if test "$PHP_MEMC_LITE" != "no"; then
 
   if test "$ac_cv_have_memcached_touch" = "yes"; then
      AC_DEFINE(HAVE_MEMCACHED_TOUCH, [1], [Whether memcached_touch is defined])
+  fi
+
+  AC_MSG_CHECKING(whether to enable memc-lite SASL support)
+  if test "$PHP_MEMC_LITE_SASL" != "no"; then
+    AC_DEFINE(HAVE_MEMC_LITE_SASL, [1], [Whether to enable SASL support])
+    AC_MSG_RESULT(yes)
+  else
+    AC_MSG_RESULT(no)
   fi
 
   CFLAGS="$ORIG_CFLAGS"
