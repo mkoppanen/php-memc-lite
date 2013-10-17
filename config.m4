@@ -57,19 +57,6 @@ if test "$PHP_MEMC_LITE" != "no"; then
      AC_DEFINE(HAVE_LIBMEMCACHED_INSTANCE_ST, [1], [Whether memcached_instance_st is defined])
   fi
 
-  AC_CACHE_CHECK([whether MEMCACHED_DISTRIBUTION_VIRTUAL_BUCKET is defined], ac_cv_have_libmemcached_vbucket, [
-    AC_TRY_COMPILE(
-      [ #include <libmemcached/memcached.h> ],
-      [ MEMCACHED_DISTRIBUTION_VIRTUAL_BUCKET; ],
-      [ ac_cv_have_libmemcached_vbucket="yes" ],
-      [ ac_cv_have_libmemcached_vbucket="no" ]
-    )
-  ])
-
-  if test "$ac_cv_have_libmemcached_vbucket" = "yes"; then
-     AC_DEFINE(HAVE_LIBMEMCACHED_VBUCKET, [1], [Whether MEMCACHED_DISTRIBUTION_VIRTUAL_BUCKET is defined])
-  fi
-
   AC_CACHE_CHECK([whether memcached_exist is defined], ac_cv_have_memcached_exist, [
     AC_TRY_LINK(
       [ #include <libmemcached/memcached.h> ],

@@ -31,14 +31,6 @@ class MemcachedLite {
     const DISTRIBUTION_KETAMA = 2;
 
     /**
-     * Virtual bucket distribution method.
-     * More information: http://dustin.sallings.org/2010/06/29/memcached-vbuckets.html
-     *
-     * This constant might be undefined for older versions of libmemcached
-     */
-    const DISTRIBUTION_VIRTUAL_BUCKET = 3;
-    
-    /**
      * Construct a new object. If persistent_id is given the underlying
      * handle is created persistently and can be used from request to request.
      *

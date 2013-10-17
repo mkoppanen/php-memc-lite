@@ -65,7 +65,6 @@ typedef enum _php_memc_lite_distribution_t {
 	PHP_MEMC_LITE_DISTRIBUTION_MIN,
 	PHP_MEMC_LITE_DISTRIBUTION_MODULO,
 	PHP_MEMC_LITE_DISTRIBUTION_KETAMA,
-	PHP_MEMC_LITE_DISTRIBUTION_VBUCKET,
 	PHP_MEMC_LITE_DISTRIBUTION_MAX
 } php_memc_lite_distribution_t;
 
@@ -1152,15 +1151,6 @@ PHP_METHOD(memcachedlite, set_distribution)
 				intern->internal->distribution = distribution;
 			break;
 
-#ifdef HAVE_LIBMEMCACHED_VBUCKET
-			case PHP_MEMC_LITE_DISTRIBUTION_VBUCKET:
-				rc = memcached_behavior_set_distribution (intern->internal->memc, MEMCACHED_DISTRIBUTION_VIRTUAL_BUCKET);
-				if (s_handle_libmemcached_return (intern->internal->memc, "MemcachedLite::set_distribution", rc TSRMLS_CC)) {
-					return;
-				}
-				intern->internal->distribution = distribution;
-			break;
-#endif
 			default:
 				RETURN_FALSE;
 			break;
@@ -1526,10 +1516,6 @@ PHP_MINIT_FUNCTION(memc_lite)
 
 	PHP_MEMC_LITE_REGISTER_CONST_LONG ("DISTRIBUTION_MODULO",  PHP_MEMC_LITE_DISTRIBUTION_MODULO);
 	PHP_MEMC_LITE_REGISTER_CONST_LONG ("DISTRIBUTION_KETAMA",  PHP_MEMC_LITE_DISTRIBUTION_KETAMA);
-
-#ifdef HAVE_LIBMEMCACHED_VBUCKET
-	PHP_MEMC_LITE_REGISTER_CONST_LONG ("DISTRIBUTION_VBUCKET", PHP_MEMC_LITE_DISTRIBUTION_VBUCKET);
-#endif
 
 #ifdef HAVE_MEMC_LITE_SASL
 	PHP_MEMC_LITE_REGISTER_CONST_LONG ("HAVE_SASL", 1);
