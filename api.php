@@ -155,7 +155,7 @@ class MemcachedLite {
     public function decrement ($key, $offset = 1);
 
     /**
-     * Sets the key distribution method. Available methods are MODULO, KETAMA and VBUCKET.
+     * Sets the key distribution method. Available methods are MODULO or KETAMA.
      * They are defined as class constants in this class.
      *
      * @param integer $type  Distribution constants
@@ -164,7 +164,7 @@ class MemcachedLite {
     public function set_distribution ($type);
 
     /**
-     * Gets the key distribution method. One of MODULO, KETAMA and VBUCKET.
+     * Gets the key distribution method. One of MODULO or KETAMA.
      * They are defined as class constants in this class.
      *
      * @return integer
