@@ -73,7 +73,7 @@ if test "$PHP_MEMC_LITE" != "no"; then
   AC_CACHE_CHECK([whether memcached_touch is defined], ac_cv_have_memcached_touch, [
     AC_TRY_LINK(
       [ #include <libmemcached/memcached.h> ],
-      [ memcached_touch (NULL, NULL, 0); ],
+      [ memcached_touch (NULL, NULL, 0, 0); ],
       [ ac_cv_have_memcached_touch="yes" ],
       [ ac_cv_have_memcached_touch="no" ]
     )
