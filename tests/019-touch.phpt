@@ -14,7 +14,10 @@ function run_touch_test ($memc)
 	$memc->set ($key, 'hi', 5);
 	$memc->touch ($key, 10);
 	sleep (2);
-	var_dump ($memc->get ($key));
+
+	$exists = null;
+	var_dump ($memc->get ($key, $exists));
+	var_dump ($exists);
 	
 	var_dump ($memc->touch (uniqid ('this_does_not_exist_')));
 }
@@ -28,8 +31,10 @@ echo "OK" . PHP_EOL;
 --EXPECT--
 BINARY PROTO
 string(2) "hi"
+bool(true)
 bool(false)
 ASCII PROTO
 string(2) "hi"
+bool(true)
 bool(false)
 OK
