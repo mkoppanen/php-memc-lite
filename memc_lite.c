@@ -1023,18 +1023,36 @@ void s_memc_lite_interval_op (INTERNAL_FUNCTION_PARAMETERS, php_memc_lite_op_t o
 	int key_len;
 	memcached_return rc;
 	long offset = 1, ttl = 0;
-	uint64_t initial = 0, new_value = 0;
+	long initial = 0;
+	uint64_t new_value = 0;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|ll", &key, &key_len, &offset, &ttl) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|lll", &key, &key_len, &offset, &ttl, &initial) == FAILURE) {
 		return;
 	}
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
 
-	if (operation == PHP_MEMC_LITE_OP_INCR)
-		rc = memcached_increment_with_initial (intern->internal->memc, key, key_len, offset, initial, (time_t) ttl, &new_value);
-	else
-		rc = memcached_decrement_with_initial (intern->internal->memc, key, key_len, offset, initial, (time_t) ttl, &new_value);
+	if (initial && !memcached_behavior_get (intern->internal->memc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL)) {
+		zend_throw_exception (php_memc_lite_exception_sc_entry, "Initial value is only supported with binary protocol", -1 TSRMLS_CC);
+		return;
+	}
+
+	if (initial > 0) {
+		if (operation == PHP_MEMC_LITE_OP_INCR)
+			rc = memcached_increment_with_initial (intern->internal->memc, key, key_len, offset, initial, (time_t) ttl, &new_value);
+		else
+			rc = memcached_decrement_with_initial (intern->internal->memc, key, key_len, offset, initial, (time_t) ttl, &new_value);
+	}
+	else {
+		if (offset > UINT32_MAX) {
+			zend_throw_exception (php_memc_lite_exception_sc_entry, "The offset is larger than maximum allowed value", -1 TSRMLS_CC);
+			return;
+		}
+		if (operation == PHP_MEMC_LITE_OP_INCR)
+			rc = memcached_increment (intern->internal->memc, key, key_len, offset, &new_value);
+		else
+			rc = memcached_decrement (intern->internal->memc, key, key_len, offset, &new_value);
+	}
 
 	if (rc == MEMCACHED_SUCCESS) {
 		s_uint64_to_zval (return_value, new_value TSRMLS_CC);

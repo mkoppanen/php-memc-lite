@@ -24,7 +24,7 @@ $new_value = $memc->increment ('interval_value', 7);
 var_dump ($new_value);
 
 // Should overflow to string
-$new_value = $memc->increment ('interval_value', PHP_INT_MAX);
+$new_value = $memc->increment ('test_key', 1000, 10, PHP_INT_MAX);
 var_dump ($new_value);
 
 echo "OK" . PHP_EOL;
