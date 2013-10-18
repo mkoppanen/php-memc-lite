@@ -12,8 +12,8 @@ function run_touch_test ($memc)
 	$key = uniqid ('touch_key_');
 	
 	$memc->set ($key, 'hi', 5);
-	$memc->touch ($key, 10);
 	sleep (2);
+	$memc->touch ($key, 10);
 
 	$exists = null;
 	var_dump ($memc->get ($key, $exists));
