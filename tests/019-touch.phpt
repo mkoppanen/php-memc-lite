@@ -9,10 +9,12 @@ require __DIR__ . '/test_driver.inc';
 
 function run_touch_test ($memc)
 {
-	$memc->set ('expires', 'hi', 1);
-	$memc->touch ('expires', 10);
+	$key = uniqid ('touch_key_');
+	
+	$memc->set ($key, 'hi', 5);
+	$memc->touch ($key, 10);
 	sleep (2);
-	var_dump ($memc->get ('expires'));
+	var_dump ($memc->get ($key));
 	
 	var_dump ($memc->touch (uniqid ('this_does_not_exist_')));
 }
