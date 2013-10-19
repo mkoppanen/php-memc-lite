@@ -970,6 +970,8 @@ PHP_METHOD(memcachedlite, touch)
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
 	rc = s_my_memcached_touch (intern->internal->memc, key, key_len, (time_t) ttl);
 
+	fprintf (stderr, "Return code: %d, %s\n", rc, memcached_strerror (intern->internal->memc, rc));
+
 	if (rc == MEMCACHED_SUCCESS) {
 		RETURN_TRUE;
 	}
