@@ -915,11 +915,12 @@ PHP_METHOD(memcachedlite, exist)
 static
 memcached_return s_my_memcached_touch (memcached_st *memc, const char *key, int key_len, time_t ttl)
 {
+	memcached_return rc;
+
 #ifdef HAVE_MEMCACHED_TOUCH
-	return memcached_touch (memc, key, key_len, ttl);
+	rc = memcached_touch (memc, key, key_len, ttl);
 #else
 	memcached_result_st result;
-	memcached_return rc;
 	const char const *keys [1] = { key };
 	size_t keys_len [1] = { key_len };
 
@@ -944,11 +945,11 @@ memcached_return s_my_memcached_touch (memcached_st *memc, const char *key, int 
 		memcached_result_free (&result);
 		return rc;
 	}
+#endif
+
 	if (rc == MEMCACHED_END)
 		return MEMCACHED_NOTFOUND;
-
 	return rc;
-#endif
 }
 
 
@@ -969,8 +970,6 @@ PHP_METHOD(memcachedlite, touch)
 
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
 	rc = s_my_memcached_touch (intern->internal->memc, key, key_len, (time_t) ttl);
-
-	fprintf (stderr, "Return code: %d, %s\n", rc, memcached_strerror (intern->internal->memc, rc));
 
 	if (rc == MEMCACHED_SUCCESS) {
 		RETURN_TRUE;
