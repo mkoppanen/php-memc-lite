@@ -917,9 +917,10 @@ memcached_return s_my_memcached_touch (memcached_st *memc, const char *key, int 
 {
 	memcached_return rc;
 
-#ifdef HAVE_MEMCACHED_TOUCH
+#ifdef HAVE_MEMCACHED_TOUCH && LIBMEMCACHED_VERSION_HEX >= 0x01000015
 	rc = memcached_touch (memc, key, key_len, ttl);
 #else
+	/* This kinda simulates touch but not that well */
 	memcached_result_st result;
 	const char const *keys [1] = { key };
 	size_t keys_len [1] = { key_len };
