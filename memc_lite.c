@@ -970,7 +970,7 @@ PHP_METHOD(memcachedlite, touch)
 	intern = (php_memc_lite_object *) zend_object_store_get_object(getThis() TSRMLS_CC);
 	rc = s_my_memcached_touch (intern->internal->memc, key, key_len, (time_t) ttl);
 
-	if (rc == MEMCACHED_SUCCESS || rc == MEMCACHED_END) {
+	if (rc == MEMCACHED_SUCCESS) {
 		RETURN_TRUE;
 	}
 	/* No exception on this, just means that key doesnt exist */

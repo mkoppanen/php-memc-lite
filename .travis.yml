@@ -6,12 +6,13 @@ php:
 env:
     - LIBMEMCACHED_VERSION=1.0.17
     - LIBMEMCACHED_VERSION=1.0.16
+    - LIBMEMCACHED_VERSION=1.0.14
+    - LIBMEMCACHED_VERSION=1.0.2
     - LIBMEMCACHED_VERSION=0.53
     - LIBMEMCACHED_VERSION=0.44
 
 before_script:
-    - sudo apt-get update
-    - sudo apt-get install valgrind
+    - sudo apt-cache show memcached
     - wget "https://launchpad.net/libmemcached/1.0/${LIBMEMCACHED_VERSION}/+download/libmemcached-${LIBMEMCACHED_VERSION}.tar.gz"
     - tar xvfz libmemcached-${LIBMEMCACHED_VERSION}.tar.gz
     - cd libmemcached-${LIBMEMCACHED_VERSION}
@@ -24,7 +25,6 @@ before_script:
 script:
     - phpize
     - ./configure --with-memc-lite="${HOME}/libmemcached-${LIBMEMCACHED_VERSION}"
-    - cat config.log
     - make
     - export NO_INTERACTION=1
     - export REPORT_EXIT_STATUS=1
